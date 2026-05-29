@@ -26,6 +26,24 @@ export const chapter08: Chapter = {
       scenePreset: { mode: "lens", rayDisplayMode: "source-bundle", showRays: true },
     },
     {
+      id: "c08-position-rule",
+      type: "cinematic",
+      title: "反対側に写っても、順番は残る",
+      speaker: "ガイド",
+      text: [
+        "上から来た光はスクリーンの下側へ、左から来た光は右側へ向かいます。",
+        "向きは反転しますが、物体上の点とスクリーン上の点の対応はばらばらにはなりません。",
+      ],
+      scenePreset: {
+        mode: "lens",
+        cameraShot: "sideAligned",
+        showRays: true,
+        rayDisplayMode: "source-bundle",
+        sensorDisplayMode: "learning",
+      },
+      glossaryTerms: ["反転", "対応"],
+    },
+    {
       id: "c08-quiz",
       type: "quiz",
       title: "理解チェック",

@@ -16,6 +16,25 @@ export const chapter11: Chapter = {
       scenePreset: { mode: "lens", focalLength: 1.2, cameraShot: "sideAligned", showRays: true, rayDisplayMode: "representative" },
     },
     {
+      id: "c11-angle",
+      type: "narration",
+      title: "画角と像の大きさ",
+      speaker: "ガイド",
+      text: [
+        "焦点距離が短いと、広い範囲を小さく写しやすくなります。",
+        "焦点距離が長いと、写る範囲は狭くなりますが、同じ物体が大きく写ります。",
+      ],
+      scenePreset: {
+        mode: "lens",
+        focalLength: 1.2,
+        cameraShot: "overview",
+        showRays: true,
+        rayDisplayMode: "representative",
+        sensorDisplayMode: "learning",
+      },
+      glossaryTerms: ["焦点距離", "画角"],
+    },
+    {
       id: "c11-change-task",
       type: "task",
       title: "焦点距離を長くする",

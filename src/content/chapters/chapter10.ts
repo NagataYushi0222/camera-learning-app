@@ -16,6 +16,25 @@ export const chapter10: Chapter = {
       scenePreset: { mode: "out-of-focus", apertureRadius: 0.78, sensorX: 2.45, cameraShot: "lensCloseup", showRays: true, rayDisplayMode: "source-bundle" },
     },
     {
+      id: "c10-bundle-width",
+      type: "narration",
+      title: "同じ点から来る光束の太さ",
+      speaker: "ガイド",
+      text: [
+        "絞りは、同じ物体点から来る光束の太さを変えます。",
+        "ピントが少し外れているとき、光束が太いほどセンサー上で広がり、ボケとして見えやすくなります。",
+      ],
+      scenePreset: {
+        mode: "out-of-focus",
+        apertureRadius: 0.72,
+        sensorX: 2.45,
+        cameraShot: "sensorCloseup",
+        showRays: true,
+        rayDisplayMode: "source-bundle",
+      },
+      glossaryTerms: ["絞り", "光束", "ボケ"],
+    },
+    {
       id: "c10-change-task",
       type: "task",
       title: "絞りを変える",
