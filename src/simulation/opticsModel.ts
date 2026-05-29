@@ -61,6 +61,8 @@ export type SceneConfig = {
   sensorDisplayMode: SensorDisplayMode;
   sensorQuality: SensorQuality;
   resolution: SensorResolution;
+  sampleCount: number;
+  rayCount: number;
 };
 
 export type SimulationParams = {
@@ -72,6 +74,32 @@ export type SimulationParams = {
   pinholeRadius: number;
   lightIntensity: number;
   lightEnabled: boolean;
+  sampleCount: number;
+  rayCount: number;
+};
+
+export type SimulationPresetId =
+  | "no-lens-mix"
+  | "pinhole-inverted"
+  | "lens-focused"
+  | "defocused"
+  | "wide-open"
+  | "stopped-down";
+
+export type SimulationPreset = {
+  label: string;
+  description: string;
+  mode: OpticalMode;
+  params: Partial<SimulationParams>;
+};
+
+export type OpticalInfo = {
+  objectDistance: number;
+  focalLength: number;
+  idealImageDistance: number | null;
+  currentScreenDistance: number;
+  focusError: number | null;
+  estimatedBlur: number | null;
 };
 
 export type ObjectSample = {
@@ -144,6 +172,88 @@ export const defaultSimulationParams: SimulationParams = {
   pinholeRadius: 0.055,
   lightIntensity: 1,
   lightEnabled: true,
+  sampleCount: 2,
+  rayCount: 13,
+};
+
+export const simulationPresets: Record<SimulationPresetId, SimulationPreset> = {
+  "no-lens-mix": {
+    label: "レンズなし",
+    description: "光が混ざる",
+    mode: "no-lens",
+    params: {
+      objectX: -2.8,
+      lensX: 0,
+      sensorX: 3,
+      apertureRadius: 0.52,
+      pinholeRadius: 0.055,
+      lightIntensity: 1,
+    },
+  },
+  "pinhole-inverted": {
+    label: "ピンホール",
+    description: "暗い反転像",
+    mode: "pinhole",
+    params: {
+      objectX: -2.8,
+      lensX: 0,
+      sensorX: 3,
+      pinholeRadius: 0.055,
+      lightIntensity: 1.25,
+    },
+  },
+  "lens-focused": {
+    label: "レンズ",
+    description: "ピントが合う",
+    mode: "lens",
+    params: {
+      objectX: -2.8,
+      lensX: 0,
+      sensorX: 3,
+      focalLength: 1.45,
+      apertureRadius: 0.48,
+      lightIntensity: 1,
+    },
+  },
+  defocused: {
+    label: "ピントずれ",
+    description: "スクリーン位置がずれてボケる",
+    mode: "out-of-focus",
+    params: {
+      objectX: -2.8,
+      lensX: 0,
+      sensorX: 2.35,
+      focalLength: 1.45,
+      apertureRadius: 0.56,
+      lightIntensity: 1,
+    },
+  },
+  "wide-open": {
+    label: "絞り開放",
+    description: "明るいがボケやすい",
+    mode: "out-of-focus",
+    params: {
+      objectX: -2.8,
+      lensX: 0,
+      sensorX: 2.45,
+      focalLength: 1.45,
+      apertureRadius: 0.78,
+      lightIntensity: 1.15,
+    },
+  },
+  "stopped-down": {
+    label: "絞り込み",
+    description: "暗いがボケにくい",
+    mode: "out-of-focus",
+    params: {
+      objectX: -2.8,
+      lensX: 0,
+      sensorX: 2.45,
+      focalLength: 1.45,
+      apertureRadius: 0.18,
+      lightIntensity: 0.85,
+    },
+  },
 };
 
 export const modeLabels: Record<OpticalMode, string> = {
@@ -190,6 +300,27 @@ export function createSceneConfig(
     sensorDisplayMode,
     sensorQuality,
     resolution,
+    sampleCount: Math.min(3, Math.max(1, Math.round(params.sampleCount))),
+    rayCount: Math.min(25, Math.max(5, Math.round(params.rayCount))),
+  };
+}
+
+export function computeOpticalInfo(config: SceneConfig): OpticalInfo {
+  const objectDistance = Math.max(0.1, config.lensPosition.x - config.objectPosition.x);
+  const focalLength = config.focalLength;
+  const denominator = 1 / focalLength - 1 / objectDistance;
+  const idealImageDistance = denominator > 0.02 ? 1 / denominator : null;
+  const currentScreenDistance = config.sensorPosition.x - config.lensPosition.x;
+  const focusError = idealImageDistance === null ? null : currentScreenDistance - idealImageDistance;
+  const estimatedBlur = focusError === null ? null : Math.abs(focusError) * Math.max(0.08, config.apertureRadius) * 7.5;
+
+  return {
+    objectDistance,
+    focalLength,
+    idealImageDistance,
+    currentScreenDistance,
+    focusError,
+    estimatedBlur,
   };
 }
 
@@ -278,7 +409,7 @@ export function pixelInfoText(mode: OpticalMode, pixel: SelectedPixel | null, ra
 }
 
 export function renderSensorImage(config: SceneConfig): SensorRenderResult {
-  const samples = createAppleSamples(config.objectPosition);
+  const samples = createAppleSamples(config.objectPosition, config.sampleCount);
   const learningAccum = new Float32Array(config.resolution.columns * config.resolution.rows * 3);
   const sampleAccum = new Float32Array(config.resolution.columns * config.resolution.rows * 3);
   const debugAccum = new Float32Array(config.resolution.columns * config.resolution.rows * 3);
@@ -348,14 +479,19 @@ function renderNoLens(
   pixelToRays: Record<string, TracedRay[]>,
   rays: TracedRay[],
 ) {
+  const subsetTarget = Math.max(28, config.sampleCount * 28);
+  const sampleStride = Math.max(1, Math.floor(samples.length / subsetTarget));
+
   for (let row = 0; row < config.resolution.rows; row += 1) {
     for (let col = 0; col < config.resolution.columns; col += 1) {
       const hitPoint = sensorPoint(config, selectedPixelFromGrid(col, row, config.resolution));
+      const start = (col * 17 + row * 31) % sampleStride;
 
-      for (const sample of samples) {
+      for (let sampleIndex = start; sampleIndex < samples.length; sampleIndex += sampleStride) {
+        const sample = samples[sampleIndex];
         const distance = length(sub(hitPoint, sample.position));
         const light = sampleLight(sample, config);
-        const contribution = (sample.intensity * light * 0.024) / Math.max(1.2, distance * distance);
+        const contribution = (sample.intensity * light * 0.024 * sampleStride) / Math.max(1.2, distance * distance);
         addColor(learningAccum, config.resolution, col, row, sample.color, contribution);
         addColor(debugAccum, config.resolution, col, row, sample.color, contribution * 0.9);
       }
@@ -407,7 +543,7 @@ function renderPinhole(
   pixelToRays: Record<string, TracedRay[]>,
   rays: TracedRay[],
 ) {
-  const aperturePoints = diskSamples(config.lensPosition, Math.max(0.002, config.pinholeRadius), 9);
+  const aperturePoints = diskSamples(config.lensPosition, Math.max(0.002, config.pinholeRadius), Math.min(15, config.rayCount));
   const brightness = 0.15 * Math.min(2.8, Math.max(0.25, config.pinholeRadius / 0.055));
 
   for (const sample of samples) {
@@ -450,7 +586,7 @@ function renderLens(
   pixelToRays: Record<string, TracedRay[]>,
   rays: TracedRay[],
 ) {
-  const aperturePoints = diskSamples(config.lensPosition, Math.max(0.04, config.apertureRadius), 13);
+  const aperturePoints = diskSamples(config.lensPosition, Math.max(0.04, config.apertureRadius), config.rayCount);
   const brightness = config.mode === "out-of-focus" ? 0.17 : 0.26;
 
   for (const sample of samples) {
@@ -492,14 +628,17 @@ function renderLens(
   }
 }
 
-function createAppleSamples(objectPosition: Vec3): ObjectSample[] {
+function createAppleSamples(objectPosition: Vec3, sampleCount: number): ObjectSample[] {
   const samples: ObjectSample[] = [];
   let index = 0;
+  const gridRadius = sampleCount <= 1 ? 9 : sampleCount >= 3 ? 18 : 14;
+  const yStep = 0.525 / gridRadius;
+  const zStep = 0.49 / gridRadius;
 
-  for (let iy = -14; iy <= 14; iy += 1) {
-    for (let iz = -14; iz <= 14; iz += 1) {
-      const y = iy * 0.0375;
-      const z = iz * 0.035;
+  for (let iy = -gridRadius; iy <= gridRadius; iy += 1) {
+    for (let iz = -gridRadius; iz <= gridRadius; iz += 1) {
+      const y = iy * yStep;
+      const z = iz * zStep;
       const upperDent = y > 0.28 ? 0.85 + Math.abs(z) * 0.35 : 1;
       const shape = (z / 0.46) ** 2 + ((y + 0.03) / (0.55 * upperDent)) ** 2;
 
@@ -516,13 +655,14 @@ function createAppleSamples(objectPosition: Vec3): ObjectSample[] {
     }
   }
 
-  for (let stem = 0; stem < 13; stem += 1) {
+  const stemCount = sampleCount <= 1 ? 8 : sampleCount >= 3 ? 18 : 13;
+  for (let stem = 0; stem < stemCount; stem += 1) {
     samples.push({
       id: `stem-${index}`,
       position: {
         x: objectPosition.x,
-        y: objectPosition.y + 0.43 + stem * 0.024,
-        z: objectPosition.z + 0.015 + stem * 0.004,
+        y: objectPosition.y + 0.43 + stem * (0.31 / stemCount),
+        z: objectPosition.z + 0.015 + stem * (0.052 / stemCount),
       },
       color: { r: 0.36, g: 0.2, b: 0.1 },
       intensity: 0.78,
@@ -530,8 +670,9 @@ function createAppleSamples(objectPosition: Vec3): ObjectSample[] {
     index += 1;
   }
 
-  for (let leaf = 0; leaf < 28; leaf += 1) {
-    const angle = (leaf / 28) * Math.PI * 2;
+  const leafCount = sampleCount <= 1 ? 16 : sampleCount >= 3 ? 42 : 28;
+  for (let leaf = 0; leaf < leafCount; leaf += 1) {
+    const angle = (leaf / leafCount) * Math.PI * 2;
     samples.push({
       id: `leaf-${index}`,
       position: {
@@ -548,13 +689,28 @@ function createAppleSamples(objectPosition: Vec3): ObjectSample[] {
   return samples;
 }
 
-function diskSamples(center: Vec3, radius: number, count: 9 | 13): Vec3[] {
+function diskSamples(center: Vec3, radius: number, count: number): Vec3[] {
   const points: Vec3[] = [{ ...center }];
-  const rings = count === 13 ? [0.46, 0.82] : [0.72];
-  const counts = count === 13 ? [4, 8] : [8];
+
+  if (count <= 1) {
+    return points;
+  }
+
+  const safeCount = Math.max(2, Math.round(count));
+  const rings = safeCount <= 6 ? [0.78] : safeCount <= 14 ? [0.46, 0.82] : [0.32, 0.62, 0.9];
+  const counts =
+    safeCount <= 6
+      ? [safeCount - 1]
+      : safeCount <= 14
+        ? [Math.min(4, safeCount - 1), safeCount - 1 - Math.min(4, safeCount - 1)]
+        : [6, 8, safeCount - 15];
 
   rings.forEach((ring, ringIndex) => {
     const ringCount = counts[ringIndex];
+    if (ringCount <= 0) {
+      return;
+    }
+
     for (let index = 0; index < ringCount; index += 1) {
       const angle = (index / ringCount) * Math.PI * 2 + (ringIndex * Math.PI) / 8;
       points.push({

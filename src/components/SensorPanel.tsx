@@ -1,5 +1,5 @@
-import { Crosshair, Grid2X2, MousePointer2, Power, X } from "lucide-react";
-import type { MouseEvent } from "react";
+import { Crosshair, Grid2X2, MousePointer2, Power, RotateCcw, X } from "lucide-react";
+import type { MouseEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   modeDescriptions,
@@ -9,9 +9,12 @@ import {
   selectedPixelFromGrid,
   sensorDisplayModeLabels,
   sensorQualityLabels,
+  computeOpticalInfo,
+  simulationPresets,
   type RayDisplayMode,
   type SensorDisplayMode,
   type SensorQuality,
+  type SimulationPresetId,
   type SimulationParams,
 } from "../simulation/opticsModel";
 import { useLessonStore } from "../state/useLessonStore";
@@ -94,13 +97,31 @@ function NumericControl({ label, paramKey, min, max, step, unit = "", digits = 2
         max={max}
         step={step}
         value={draftValue}
-        onInput={(event) => scheduleChange(Number(event.currentTarget.value))}
-        onChange={(event) => commitChange(Number(event.currentTarget.value))}
+        onChange={(event) => scheduleChange(Number(event.currentTarget.value))}
         onPointerUp={() => commitChange()}
+        onBlur={() => commitChange()}
         onKeyUp={() => commitChange()}
       />
     </label>
   );
+}
+
+type ParameterGroupProps = {
+  title: string;
+  children: ReactNode;
+};
+
+function ParameterGroup({ title, children }: ParameterGroupProps) {
+  return (
+    <div className="parameter-group">
+      <h3>{title}</h3>
+      <div className="parameter-controls">{children}</div>
+    </div>
+  );
+}
+
+function formatMetric(value: number | null, unit = "", digits = 2): string {
+  return value === null ? "--" : `${value.toFixed(digits)}${unit}`;
 }
 
 export function SensorPanel() {
@@ -112,6 +133,7 @@ export function SensorPanel() {
     sensorQuality,
     rayDisplayMode,
     showSensorGrid,
+    sceneConfig,
     sensorResult,
     selectedPixel,
     selectedRays,
@@ -122,8 +144,11 @@ export function SensorPanel() {
     setRayDisplayMode,
     toggleSensorGrid,
     updateSimulationParam,
+    resetSimulationParams,
+    applySimulationPreset,
     toggleLight,
   } = useLessonStore();
+  const opticalInfo = computeOpticalInfo(sceneConfig);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -154,7 +179,7 @@ export function SensorPanel() {
 
   return (
     <div className="sensor-panel">
-      <div className="sensor-fixed">
+      <div className="sensor-fixed sensor-preview-card">
         <div className="panel-heading">
           <div>
             <p className="eyebrow">Ray-traced Sensor</p>
@@ -183,7 +208,7 @@ export function SensorPanel() {
       </div>
 
       <div className="sensor-controls-scroll">
-        <div className="display-panel" aria-label="表示設定">
+        <div className="display-panel inspector-card" aria-label="表示設定">
           <div className="display-row">
             <span>センサー表示</span>
             <div className="segmented-control compact">
@@ -235,7 +260,39 @@ export function SensorPanel() {
           </button>
         </div>
 
-        <div className="pixel-info">
+        <section className="optical-info-panel inspector-card" aria-label="光学情報">
+          <div className="info-row">
+            <strong>光学情報</strong>
+          </div>
+          <dl className="optical-metrics">
+            <div>
+              <dt>物体距離 do</dt>
+              <dd>{formatMetric(opticalInfo.objectDistance, "u")}</dd>
+            </div>
+            <div>
+              <dt>焦点距離 f</dt>
+              <dd>{formatMetric(opticalInfo.focalLength, "u")}</dd>
+            </div>
+            <div>
+              <dt>理想像距離 di</dt>
+              <dd>{formatMetric(mode === "lens" || mode === "out-of-focus" ? opticalInfo.idealImageDistance : null, "u")}</dd>
+            </div>
+            <div>
+              <dt>現在のスクリーン距離</dt>
+              <dd>{formatMetric(opticalInfo.currentScreenDistance, "u")}</dd>
+            </div>
+            <div>
+              <dt>ピント誤差</dt>
+              <dd>{formatMetric(mode === "lens" || mode === "out-of-focus" ? opticalInfo.focusError : null, "u")}</dd>
+            </div>
+            <div>
+              <dt>推定ボケ量</dt>
+              <dd>{formatMetric(mode === "lens" || mode === "out-of-focus" ? opticalInfo.estimatedBlur : null, "px")}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <div className="pixel-info inspector-card">
           <div className="info-row">
             <Crosshair size={16} aria-hidden="true" />
             <strong>選択ピクセル</strong>
@@ -277,26 +334,61 @@ export function SensorPanel() {
           </div>
         </div>
 
-        <section className="experiment-panel" aria-label="実験パラメータ">
+        <section className="experiment-panel parameter-panel inspector-card" aria-label="実験パラメータ">
           <div className="info-row experiment-heading">
             <strong>実験パラメータ</strong>
             <button
-              className={params.lightEnabled ? "power-button active" : "power-button"}
+              className="secondary-action reset-action"
               type="button"
-              onClick={toggleLight}
-              title="光源ON/OFF"
+              onClick={resetSimulationParams}
+              title="初期値に戻す"
             >
-              <Power size={15} aria-hidden="true" />
-              光源
+              <RotateCcw size={15} aria-hidden="true" />
+              リセット
             </button>
           </div>
-          <NumericControl label="物体X" paramKey="objectX" min={-4.2} max={-1.6} step={0.05} value={params.objectX} onChange={updateNumber} />
-          <NumericControl label="レンズX" paramKey="lensX" min={-0.7} max={0.7} step={0.05} value={params.lensX} onChange={updateNumber} />
-          <NumericControl label="スクリーンX" paramKey="sensorX" min={1.4} max={4.6} step={0.05} value={params.sensorX} onChange={updateNumber} />
-          <NumericControl label="焦点距離" paramKey="focalLength" min={0.9} max={2.1} step={0.05} value={params.focalLength} onChange={updateNumber} />
-          <NumericControl label="レンズ口径" paramKey="apertureRadius" min={0.08} max={0.82} step={0.02} value={params.apertureRadius} onChange={updateNumber} />
-          <NumericControl label="ピンホール半径" paramKey="pinholeRadius" min={0.01} max={0.22} step={0.005} value={params.pinholeRadius} onChange={updateNumber} digits={3} />
-          <NumericControl label="光の強さ" paramKey="lightIntensity" min={0} max={2.5} step={0.05} value={params.lightIntensity} onChange={updateNumber} />
+          <div className="preset-grid" aria-label="プリセット">
+            {(Object.keys(simulationPresets) as SimulationPresetId[]).map((presetId) => {
+              const preset = simulationPresets[presetId];
+              return (
+                <button className="preset-button" key={presetId} type="button" onClick={() => applySimulationPreset(presetId)}>
+                  <strong>{preset.label}</strong>
+                  <span>{preset.description}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <ParameterGroup title="基本">
+            <NumericControl label="焦点距離" paramKey="focalLength" min={0.9} max={2.1} step={0.05} value={params.focalLength} onChange={updateNumber} />
+            <NumericControl label="スクリーン距離" paramKey="sensorX" min={1.4} max={4.6} step={0.05} value={params.sensorX} onChange={updateNumber} />
+            <NumericControl label="レンズ口径" paramKey="apertureRadius" min={0.08} max={0.82} step={0.02} value={params.apertureRadius} onChange={updateNumber} />
+          </ParameterGroup>
+
+          <ParameterGroup title="位置">
+            <NumericControl label="物体位置" paramKey="objectX" min={-4.2} max={-1.6} step={0.05} value={params.objectX} onChange={updateNumber} />
+            <NumericControl label="レンズ位置" paramKey="lensX" min={-0.7} max={0.7} step={0.05} value={params.lensX} onChange={updateNumber} />
+            <NumericControl label="スクリーン位置" paramKey="sensorX" min={1.4} max={4.6} step={0.05} value={params.sensorX} onChange={updateNumber} />
+          </ParameterGroup>
+
+          <ParameterGroup title="詳細">
+            <NumericControl label="ピンホール半径" paramKey="pinholeRadius" min={0.01} max={0.22} step={0.005} value={params.pinholeRadius} onChange={updateNumber} digits={3} />
+            <NumericControl label="光源強度" paramKey="lightIntensity" min={0} max={2.5} step={0.05} value={params.lightIntensity} onChange={updateNumber} />
+            <NumericControl label="サンプル数" paramKey="sampleCount" min={1} max={3} step={1} value={params.sampleCount} onChange={updateNumber} digits={0} />
+            <NumericControl label="光線数" paramKey="rayCount" min={5} max={25} step={1} value={params.rayCount} onChange={updateNumber} digits={0} />
+            <div className="parameter-inline">
+              <span>光源ON/OFF</span>
+              <button
+                className={params.lightEnabled ? "power-button active" : "power-button"}
+                type="button"
+                onClick={toggleLight}
+                title="光源ON/OFF"
+              >
+                <Power size={15} aria-hidden="true" />
+                光源
+              </button>
+            </div>
+          </ParameterGroup>
         </section>
       </div>
     </div>

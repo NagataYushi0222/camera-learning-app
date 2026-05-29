@@ -24,7 +24,7 @@ export function NovelBox() {
   };
 
   return (
-    <footer className="novel-box" aria-label="解説">
+    <footer className="novel-box lesson-dialog" aria-label="解説">
       <div className="guide-avatar" aria-hidden="true">
         <span>光</span>
       </div>

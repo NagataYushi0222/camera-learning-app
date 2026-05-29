@@ -1,13 +1,12 @@
 import { Canvas } from "@react-three/fiber";
 import { Grid, Line, OrbitControls, Text } from "@react-three/drei";
 import { Eye, RadioTower, Route, Waves } from "lucide-react";
-import { Fragment, useMemo } from "react";
+import { Fragment, useEffect, useMemo } from "react";
 import * as THREE from "three";
 import {
   modeLabels,
   rayDisplayModeLabels,
   sensorGrid,
-  sensorPoint,
   type SceneConfig,
   type RayDisplayMode,
   type SensorRenderResult,
@@ -238,25 +237,116 @@ function LensObject({ config }: { config: SceneConfig }) {
   );
 }
 
-function SensorPlane({ config, selectedPixel }: { config: SceneConfig; selectedPixel: ReturnType<typeof useLessonStore.getState>["selectedPixel"] }) {
-  const selectedPosition = useMemo(() => (selectedPixel ? sensorPoint(config, selectedPixel) : null), [config, selectedPixel]);
+function SensorPlane({
+  config,
+  sensorResult,
+  selectedPixel,
+}: {
+  config: SceneConfig;
+  sensorResult: SensorRenderResult;
+  selectedPixel: ReturnType<typeof useLessonStore.getState>["selectedPixel"];
+}) {
+  const texture = useMemo(() => {
+    const dataTexture = new THREE.DataTexture(
+      Uint8Array.from(sensorResult.pixelBuffer),
+      sensorResult.width,
+      sensorResult.height,
+      THREE.RGBAFormat,
+    );
+    dataTexture.needsUpdate = true;
+    dataTexture.flipY = true;
+    dataTexture.colorSpace = THREE.SRGBColorSpace;
+    dataTexture.minFilter = THREE.LinearFilter;
+    dataTexture.magFilter = THREE.LinearFilter;
+    dataTexture.generateMipmaps = false;
+    return dataTexture;
+  }, [sensorResult]);
+  const screenWidth = sensorGrid.width;
+  const screenHeight = (screenWidth * sensorResult.height) / sensorResult.width;
+  const selectedScreenOffset = selectedPixel
+    ? {
+        y: (0.5 - selectedPixel.v) * screenHeight,
+        z: (selectedPixel.u - 0.5) * screenWidth,
+      }
+    : null;
+
+  useEffect(() => () => texture.dispose(), [texture]);
 
   return (
     <group position={toTuple(config.sensorPosition)}>
-      <mesh rotation={[0, Math.PI / 2, 0]}>
-        <planeGeometry args={[sensorGrid.width, sensorGrid.height]} />
-        <meshStandardMaterial color="#eef3f5" roughness={0.36} metalness={0.02} />
+      <mesh rotation={[0, -Math.PI / 2, 0]}>
+        <planeGeometry args={[screenWidth, screenHeight]} />
+        <meshBasicMaterial map={texture} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
-      <mesh rotation={[0, Math.PI / 2, 0]}>
-        <boxGeometry args={[sensorGrid.width + 0.12, sensorGrid.height + 0.12, 0.035]} />
+      <mesh rotation={[0, -Math.PI / 2, 0]}>
+        <boxGeometry args={[screenWidth + 0.12, screenHeight + 0.12, 0.035]} />
         <meshBasicMaterial color="#202226" wireframe />
       </mesh>
-      {selectedPosition ? (
-        <mesh position={[-0.035, selectedPosition.y - config.sensorPosition.y, selectedPosition.z - config.sensorPosition.z]}>
-          <sphereGeometry args={[0.055, 24, 24]} />
+      <Text
+        position={[-0.04, screenHeight * 0.58, 0]}
+        rotation={[0, -Math.PI / 2, 0]}
+        fontSize={0.13}
+        color="#dfe9ec"
+        anchorX="center"
+        anchorY="middle"
+      >
+        スクリーン / センサー
+      </Text>
+      {selectedScreenOffset ? (
+        <mesh position={[-0.035, selectedScreenOffset.y, selectedScreenOffset.z]}>
+          <sphereGeometry args={[0.06, 24, 24]} />
           <meshStandardMaterial color="#ffcf33" emissive="#ffb000" emissiveIntensity={1.2} />
         </mesh>
       ) : null}
+      {selectedScreenOffset ? (
+        <mesh
+          position={[-0.032, selectedScreenOffset.y, selectedScreenOffset.z]}
+          rotation={[0, -Math.PI / 2, 0]}
+        >
+          <torusGeometry args={[0.085, 0.008, 8, 40]} />
+          <meshBasicMaterial color="#ffd34e" transparent opacity={0.95} />
+        </mesh>
+      ) : null}
+    </group>
+  );
+}
+
+function AxisMarkers({ config }: { config: SceneConfig }) {
+  const objectX = config.objectPosition.x;
+  const lensX = config.lensPosition.x;
+  const sensorX = config.sensorPosition.x;
+  const minX = Math.min(objectX, lensX, sensorX) - 0.35;
+  const maxX = Math.max(objectX, lensX, sensorX) + 0.35;
+  const objectDistance = Math.abs(lensX - objectX);
+  const screenDistance = Math.abs(sensorX - lensX);
+
+  return (
+    <group>
+      <Line points={[[minX, -0.62, 0], [maxX, -0.62, 0]]} color="#88929b" lineWidth={1.1} transparent opacity={0.65} />
+      {[
+        { label: "物体", x: objectX, color: "#e36b58" },
+        { label: "レンズ", x: lensX, color: "#7bd4df" },
+        { label: "スクリーン", x: sensorX, color: "#f4d35e" },
+      ].map((marker) => (
+        <group key={marker.label} position={[marker.x, -0.62, 0]}>
+          <mesh>
+            <sphereGeometry args={[0.045, 16, 16]} />
+            <meshBasicMaterial color={marker.color} />
+          </mesh>
+          <Line points={[[0, -0.02, 0], [0, 0.34, 0]]} color={marker.color} lineWidth={1} transparent opacity={0.42} />
+          <Text position={[0, 0.48, 0]} fontSize={0.12} color="#e7edf0" anchorX="center" anchorY="middle">
+            {marker.label}
+          </Text>
+        </group>
+      ))}
+      <Line points={[[objectX, -0.92, -0.18], [lensX, -0.92, -0.18]]} color="#e6a44c" lineWidth={1.2} transparent opacity={0.7} />
+      <Text position={[(objectX + lensX) / 2, -1.03, -0.18]} fontSize={0.11} color="#ffd99b" anchorX="center" anchorY="middle">
+        物体距離 {objectDistance.toFixed(2)}
+      </Text>
+      <Line points={[[lensX, -0.92, 0.18], [sensorX, -0.92, 0.18]]} color="#f4d35e" lineWidth={1.2} transparent opacity={0.7} />
+      <Text position={[(lensX + sensorX) / 2, -1.03, 0.18]} fontSize={0.11} color="#fff1a8" anchorX="center" anchorY="middle">
+        スクリーン距離 {screenDistance.toFixed(2)}
+      </Text>
     </group>
   );
 }
@@ -417,8 +507,9 @@ function SceneContent() {
       <LightSource config={sceneConfig} showWavefronts={showWavefronts} />
       <AppleObject config={sceneConfig} />
       <LensObject config={sceneConfig} />
-      <SensorPlane config={sceneConfig} selectedPixel={selectedPixel} />
+      <SensorPlane config={sceneConfig} sensorResult={sensorResult} selectedPixel={selectedPixel} />
       <CameraWireframe config={sceneConfig} />
+      <AxisMarkers config={sceneConfig} />
       {showRays && rayDisplayMode === "representative" ? (
         <RayLines rays={representativeRays} color="#f2a23a" opacity={0.72} lineWidth={2.2} />
       ) : null}

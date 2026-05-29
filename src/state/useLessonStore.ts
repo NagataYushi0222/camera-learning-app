@@ -7,11 +7,13 @@ import {
   getRaysForPixel,
   renderSensorImage,
   selectedPixelFromGrid,
+  simulationPresets,
   type RayDisplayMode,
   type SceneConfig,
   type SensorDisplayMode,
   type SensorQuality,
   type SensorRenderResult,
+  type SimulationPresetId,
   type SimulationParams,
   type TracedRay,
 } from "../simulation/opticsModel";
@@ -41,6 +43,8 @@ type LessonState = {
   setRayDisplayMode: (mode: RayDisplayMode) => void;
   toggleSensorGrid: () => void;
   updateSimulationParam: (key: SimulationParamKey, value: number | boolean) => void;
+  resetSimulationParams: () => void;
+  applySimulationPreset: (presetId: SimulationPresetId) => void;
   selectPixel: (pixel: SelectedPixel) => void;
   selectCenterPixel: () => void;
   clearSelectedPixel: () => void;
@@ -90,6 +94,10 @@ function makeComputedState(
     selectedPixel: normalizedPixel,
     selectedRays,
   };
+}
+
+function sameParamValue(current: number | boolean, next: number | boolean): boolean {
+  return typeof current === "number" && typeof next === "number" ? Math.abs(current - next) < 0.0001 : current === next;
 }
 
 function paramsForMode(mode: OpticalMode, params: SimulationParams): SimulationParams {
@@ -143,11 +151,26 @@ export const useLessonStore = create<LessonState>((set) => ({
   toggleSensorGrid: () => set((state) => ({ showSensorGrid: !state.showSensorGrid })),
   updateSimulationParam: (key, value) =>
     set((state) => {
+      if (sameParamValue(state.params[key], value)) {
+        return {};
+      }
+
       const params = {
         ...state.params,
         [key]: value,
       };
       return makeComputedState(state.mode, params, state.selectedPixel, state.sensorQuality, state.sensorDisplayMode);
+    }),
+  resetSimulationParams: () =>
+    set((state) => makeComputedState("lens", defaultSimulationParams, state.selectedPixel, state.sensorQuality, state.sensorDisplayMode)),
+  applySimulationPreset: (presetId) =>
+    set((state) => {
+      const preset = simulationPresets[presetId];
+      const params = {
+        ...defaultSimulationParams,
+        ...preset.params,
+      };
+      return makeComputedState(preset.mode, params, state.selectedPixel, state.sensorQuality, state.sensorDisplayMode);
     }),
   selectPixel: (pixel) =>
     set((state) => ({
