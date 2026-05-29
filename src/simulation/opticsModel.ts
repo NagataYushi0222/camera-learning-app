@@ -1,10 +1,38 @@
 import type { OpticalMode, SelectedPixel } from "../types";
 
 export const sensorGrid = {
-  columns: 112,
-  rows: 72,
+  columns: 224,
+  rows: 144,
   width: 2.2,
   height: 1.42,
+};
+
+export type SensorDisplayMode = "learning" | "samples" | "debug";
+export type SensorQuality = "low" | "medium" | "high";
+export type RayDisplayMode = "representative" | "selected" | "flux" | "debug";
+
+export type SensorResolution = {
+  columns: number;
+  rows: number;
+};
+
+export const sensorQualityLabels: Record<SensorQuality, string> = {
+  low: "112 x 72",
+  medium: "224 x 144",
+  high: "448 x 288",
+};
+
+export const sensorDisplayModeLabels: Record<SensorDisplayMode, string> = {
+  learning: "学習用表示",
+  samples: "サンプル点表示",
+  debug: "デバッグ表示",
+};
+
+export const rayDisplayModeLabels: Record<RayDisplayMode, string> = {
+  representative: "代表光線",
+  selected: "選択のみ",
+  flux: "光束表示",
+  debug: "デバッグ",
 };
 
 export type Vec3 = {
@@ -30,6 +58,9 @@ export type SceneConfig = {
   lightIntensity: number;
   lightEnabled: boolean;
   mode: OpticalMode;
+  sensorDisplayMode: SensorDisplayMode;
+  sensorQuality: SensorQuality;
+  resolution: SensorResolution;
 };
 
 export type SimulationParams = {
@@ -59,6 +90,9 @@ export type TracedRay = {
   id: string;
   origin: Vec3;
   points: Vec3[];
+  aperturePoint?: Vec3;
+  idealImagePoint?: Vec3;
+  sensorHitPoint?: Vec3;
   color: string;
   intensity: number;
   hitPixel: PixelHit;
@@ -69,11 +103,15 @@ export type SensorRenderResult = {
   width: number;
   height: number;
   pixelBuffer: Uint8ClampedArray;
+  learningBuffer: Uint8ClampedArray;
+  sampleBuffer: Uint8ClampedArray;
+  debugBuffer: Uint8ClampedArray;
   rays: TracedRay[];
   pixelToRays: Record<string, TracedRay[]>;
   samples: ObjectSample[];
   maxChannel: number;
   idealImageX: number | null;
+  config: SceneConfig;
 };
 
 type SensorHit = PixelHit & {
@@ -84,6 +122,18 @@ type SensorHit = PixelHit & {
 };
 
 const maxRaysPerPixel = 14;
+
+export function resolutionForQuality(quality: SensorQuality): SensorResolution {
+  if (quality === "low") {
+    return { columns: 112, rows: 72 };
+  }
+
+  if (quality === "high") {
+    return { columns: 448, rows: 288 };
+  }
+
+  return { columns: 224, rows: 144 };
+}
 
 export const defaultSimulationParams: SimulationParams = {
   objectX: -2.8,
@@ -118,7 +168,14 @@ export function defaultSensorXForMode(mode: OpticalMode): number {
   return mode === "out-of-focus" ? 2.35 : defaultSimulationParams.sensorX;
 }
 
-export function createSceneConfig(mode: OpticalMode, params: SimulationParams): SceneConfig {
+export function createSceneConfig(
+  mode: OpticalMode,
+  params: SimulationParams,
+  sensorQuality: SensorQuality = "medium",
+  sensorDisplayMode: SensorDisplayMode = "learning",
+): SceneConfig {
+  const resolution = resolutionForQuality(sensorQuality);
+
   return {
     lightPosition: { x: -4.25, y: 1.22, z: -1.18 },
     objectPosition: { x: params.objectX, y: 0, z: 0 },
@@ -130,14 +187,21 @@ export function createSceneConfig(mode: OpticalMode, params: SimulationParams): 
     lightIntensity: params.lightIntensity,
     lightEnabled: params.lightEnabled,
     mode,
+    sensorDisplayMode,
+    sensorQuality,
+    resolution,
   };
 }
 
-export function selectedPixelFromGrid(col: number, row: number): SelectedPixel {
-  const clampedCol = Math.min(Math.max(col, 0), sensorGrid.columns - 1);
-  const clampedRow = Math.min(Math.max(row, 0), sensorGrid.rows - 1);
-  const u = (clampedCol + 0.5) / sensorGrid.columns;
-  const v = (clampedRow + 0.5) / sensorGrid.rows;
+export function selectedPixelFromGrid(
+  col: number,
+  row: number,
+  resolution: SensorResolution = { columns: sensorGrid.columns, rows: sensorGrid.rows },
+): SelectedPixel {
+  const clampedCol = Math.min(Math.max(col, 0), resolution.columns - 1);
+  const clampedRow = Math.min(Math.max(row, 0), resolution.rows - 1);
+  const u = (clampedCol + 0.5) / resolution.columns;
+  const v = (clampedRow + 0.5) / resolution.rows;
 
   return {
     col: clampedCol,
@@ -215,82 +279,121 @@ export function pixelInfoText(mode: OpticalMode, pixel: SelectedPixel | null, ra
 
 export function renderSensorImage(config: SceneConfig): SensorRenderResult {
   const samples = createAppleSamples(config.objectPosition);
-  const accum = new Float32Array(sensorGrid.columns * sensorGrid.rows * 3);
+  const learningAccum = new Float32Array(config.resolution.columns * config.resolution.rows * 3);
+  const sampleAccum = new Float32Array(config.resolution.columns * config.resolution.rows * 3);
+  const debugAccum = new Float32Array(config.resolution.columns * config.resolution.rows * 3);
   const pixelToRays: Record<string, TracedRay[]> = {};
   const rays: TracedRay[] = [];
   const idealImageX = computeIdealImageX(config);
 
   if (!config.lightEnabled || config.lightIntensity <= 0.001) {
+    const emptyBuffer = toPixelBuffer(learningAccum, config.mode, config.resolution, "learning");
     return {
-      width: sensorGrid.columns,
-      height: sensorGrid.rows,
-      pixelBuffer: toPixelBuffer(accum, config.mode),
+      width: config.resolution.columns,
+      height: config.resolution.rows,
+      pixelBuffer: emptyBuffer,
+      learningBuffer: emptyBuffer,
+      sampleBuffer: emptyBuffer,
+      debugBuffer: emptyBuffer,
       rays,
       pixelToRays,
       samples,
       maxChannel: 0,
       idealImageX,
+      config,
     };
   }
 
   if (config.mode === "no-lens") {
-    renderNoLens(config, samples, accum, pixelToRays, rays);
+    renderNoLens(config, samples, learningAccum, sampleAccum, debugAccum, pixelToRays, rays);
   } else if (config.mode === "pinhole") {
-    renderPinhole(config, samples, accum, pixelToRays, rays);
+    renderPinhole(config, samples, learningAccum, sampleAccum, debugAccum, pixelToRays, rays);
   } else {
-    renderLens(config, samples, accum, pixelToRays, rays);
+    renderLens(config, samples, learningAccum, sampleAccum, debugAccum, pixelToRays, rays);
   }
 
-  const maxChannel = maxValue(accum);
+  const learningBuffer = toPixelBuffer(learningAccum, config.mode, config.resolution, "learning");
+  const sampleBuffer = toPixelBuffer(sampleAccum, config.mode, config.resolution, "samples");
+  const debugBuffer = toPixelBuffer(debugAccum, config.mode, config.resolution, "debug");
+  const pixelBuffer =
+    config.sensorDisplayMode === "samples"
+      ? sampleBuffer
+      : config.sensorDisplayMode === "debug"
+        ? debugBuffer
+        : learningBuffer;
+  const maxChannel = maxValue(learningAccum);
 
   return {
-    width: sensorGrid.columns,
-    height: sensorGrid.rows,
-    pixelBuffer: toPixelBuffer(accum, config.mode),
+    width: config.resolution.columns,
+    height: config.resolution.rows,
+    pixelBuffer,
+    learningBuffer,
+    sampleBuffer,
+    debugBuffer,
     rays,
     pixelToRays,
     samples,
     maxChannel,
     idealImageX,
+    config,
   };
 }
 
 function renderNoLens(
   config: SceneConfig,
   samples: ObjectSample[],
-  accum: Float32Array,
+  learningAccum: Float32Array,
+  sampleAccum: Float32Array,
+  debugAccum: Float32Array,
   pixelToRays: Record<string, TracedRay[]>,
   rays: TracedRay[],
 ) {
-  for (let row = 0; row < sensorGrid.rows; row += 1) {
-    for (let col = 0; col < sensorGrid.columns; col += 1) {
-      const hitPoint = sensorPoint(config, selectedPixelFromGrid(col, row));
+  for (let row = 0; row < config.resolution.rows; row += 1) {
+    for (let col = 0; col < config.resolution.columns; col += 1) {
+      const hitPoint = sensorPoint(config, selectedPixelFromGrid(col, row, config.resolution));
 
       for (const sample of samples) {
         const distance = length(sub(hitPoint, sample.position));
         const light = sampleLight(sample, config);
         const contribution = (sample.intensity * light * 0.024) / Math.max(1.2, distance * distance);
-        addColor(accum, col, row, sample.color, contribution);
+        addColor(learningAccum, config.resolution, col, row, sample.color, contribution);
+        addColor(debugAccum, config.resolution, col, row, sample.color, contribution * 0.9);
       }
 
       const representative = representativeNoLensSamples(samples, col, row);
-      for (const sample of representative) {
+      for (const sample of representative.slice(0, 5)) {
         const hitPixel = { col, row };
         const ray = makeRay(
           `nolens-${sample.id}-${col}-${row}`,
           [sample.position, hitPoint],
           sample,
           hitPixel,
-          sampleLight(sample, config) * 0.18,
+          sampleLight(sample, config) * 0.1,
+          { sensorHitPoint: hitPoint },
         );
         pushPixelRay(pixelToRays, hitPixel, ray);
       }
     }
   }
 
+  for (const sample of samples) {
+    for (let scatter = 0; scatter < 5; scatter += 1) {
+      const seed = sampleIndex(sample) * 47 + scatter * 19;
+      const col = Math.abs(seed * 13) % config.resolution.columns;
+      const row = Math.abs(seed * 7) % config.resolution.rows;
+      const hitPoint = sensorPoint(config, selectedPixelFromGrid(col, row, config.resolution));
+      const hit = pointToSensorHit(config, hitPoint);
+      if (!hit) {
+        continue;
+      }
+      const ray = makeRay(`nolens-sample-${sample.id}-${scatter}`, [sample.position, hitPoint], sample, hit, sampleLight(sample, config) * 0.08);
+      splat(sampleAccum, pixelToRays, config.resolution, hit, sample.color, sample.intensity * sampleLight(sample, config) * 0.08, 0.45, ray, false);
+    }
+  }
+
   for (let index = 0; index < Math.min(90, samples.length); index += 9) {
     const sample = samples[index];
-    const target = sensorPoint(config, selectedPixelFromGrid((index * 13) % sensorGrid.columns, (index * 7) % sensorGrid.rows));
+    const target = sensorPoint(config, selectedPixelFromGrid((index * 13) % config.resolution.columns, (index * 7) % config.resolution.rows, config.resolution));
     rays.push(makeRay(`nolens-guide-${sample.id}`, [sample.position, target], sample, pointToSensorHit(config, target) ?? { col: 0, row: 0 }, 0.18));
   }
 }
@@ -298,12 +401,14 @@ function renderNoLens(
 function renderPinhole(
   config: SceneConfig,
   samples: ObjectSample[],
-  accum: Float32Array,
+  learningAccum: Float32Array,
+  sampleAccum: Float32Array,
+  debugAccum: Float32Array,
   pixelToRays: Record<string, TracedRay[]>,
   rays: TracedRay[],
 ) {
   const aperturePoints = diskSamples(config.lensPosition, Math.max(0.002, config.pinholeRadius), 9);
-  const brightness = 0.23 * Math.min(2.8, Math.max(0.25, config.pinholeRadius / 0.055));
+  const brightness = 0.15 * Math.min(2.8, Math.max(0.25, config.pinholeRadius / 0.055));
 
   for (const sample of samples) {
     for (const aperturePoint of aperturePoints) {
@@ -317,8 +422,17 @@ function renderPinhole(
 
       const light = sampleLight(sample, config);
       const rayIntensity = sample.intensity * light * brightness;
-      const ray = makeRay(`pinhole-${sample.id}-${aperturePoint.y.toFixed(2)}-${aperturePoint.z.toFixed(2)}`, [sample.position, aperturePoint, hitPoint], sample, hit, rayIntensity);
-      splat(accum, pixelToRays, hit, sample.color, rayIntensity, config.pinholeRadius > 0.1 ? 1.2 : 0.65, ray);
+      const ray = makeRay(
+        `pinhole-${sample.id}-${aperturePoint.y.toFixed(2)}-${aperturePoint.z.toFixed(2)}`,
+        [sample.position, aperturePoint, hitPoint],
+        sample,
+        hit,
+        rayIntensity,
+        { aperturePoint, sensorHitPoint: hitPoint },
+      );
+      splat(learningAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, pinholeLearningRadius(config), ray, true);
+      splat(sampleAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, 0.45, ray, false);
+      splat(debugAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, 0.28, ray, false);
 
       if (rays.length < 360 && sampleIndex(sample) % 8 === 0) {
         rays.push(ray);
@@ -330,7 +444,9 @@ function renderPinhole(
 function renderLens(
   config: SceneConfig,
   samples: ObjectSample[],
-  accum: Float32Array,
+  learningAccum: Float32Array,
+  sampleAccum: Float32Array,
+  debugAccum: Float32Array,
   pixelToRays: Record<string, TracedRay[]>,
   rays: TracedRay[],
 ) {
@@ -357,8 +473,17 @@ function renderLens(
       const focusDistance = Math.abs((computeIdealImageX(config) ?? config.sensorPosition.x) - config.sensorPosition.x);
       const defocusBoost = config.mode === "out-of-focus" ? Math.min(1.25, 0.85 + focusDistance * 0.35) : 1;
       const rayIntensity = sample.intensity * light * brightness * defocusBoost;
-      const ray = makeRay(`lens-${sample.id}-${aperturePoint.y.toFixed(2)}-${aperturePoint.z.toFixed(2)}`, [sample.position, aperturePoint, hitPoint], sample, hit, rayIntensity);
-      splat(accum, pixelToRays, hit, sample.color, rayIntensity, config.mode === "out-of-focus" ? 1.05 : 0.78, ray);
+      const ray = makeRay(
+        `lens-${sample.id}-${aperturePoint.y.toFixed(2)}-${aperturePoint.z.toFixed(2)}`,
+        [sample.position, aperturePoint, hitPoint],
+        sample,
+        hit,
+        rayIntensity,
+        { aperturePoint, idealImagePoint: imagePoint, sensorHitPoint: hitPoint },
+      );
+      splat(learningAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, lensLearningRadius(config), ray, true);
+      splat(sampleAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, 0.42, ray, false);
+      splat(debugAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, 0.24, ray, false);
 
       if (rays.length < 440 && sampleIndex(sample) % 7 === 0) {
         rays.push(ray);
@@ -371,10 +496,10 @@ function createAppleSamples(objectPosition: Vec3): ObjectSample[] {
   const samples: ObjectSample[] = [];
   let index = 0;
 
-  for (let iy = -7; iy <= 7; iy += 1) {
-    for (let iz = -7; iz <= 7; iz += 1) {
-      const y = iy * 0.075;
-      const z = iz * 0.07;
+  for (let iy = -14; iy <= 14; iy += 1) {
+    for (let iz = -14; iz <= 14; iz += 1) {
+      const y = iy * 0.0375;
+      const z = iz * 0.035;
       const upperDent = y > 0.28 ? 0.85 + Math.abs(z) * 0.35 : 1;
       const shape = (z / 0.46) ** 2 + ((y + 0.03) / (0.55 * upperDent)) ** 2;
 
@@ -391,13 +516,13 @@ function createAppleSamples(objectPosition: Vec3): ObjectSample[] {
     }
   }
 
-  for (let stem = 0; stem < 7; stem += 1) {
+  for (let stem = 0; stem < 13; stem += 1) {
     samples.push({
       id: `stem-${index}`,
       position: {
         x: objectPosition.x,
-        y: objectPosition.y + 0.43 + stem * 0.045,
-        z: objectPosition.z + 0.015 + stem * 0.006,
+        y: objectPosition.y + 0.43 + stem * 0.024,
+        z: objectPosition.z + 0.015 + stem * 0.004,
       },
       color: { r: 0.36, g: 0.2, b: 0.1 },
       intensity: 0.78,
@@ -405,13 +530,13 @@ function createAppleSamples(objectPosition: Vec3): ObjectSample[] {
     index += 1;
   }
 
-  for (let leaf = 0; leaf < 13; leaf += 1) {
-    const angle = (leaf / 13) * Math.PI * 2;
+  for (let leaf = 0; leaf < 28; leaf += 1) {
+    const angle = (leaf / 28) * Math.PI * 2;
     samples.push({
       id: `leaf-${index}`,
       position: {
         x: objectPosition.x,
-        y: objectPosition.y + 0.62 + Math.sin(angle) * 0.045,
+        y: objectPosition.y + 0.62 + Math.sin(angle) * 0.05,
         z: objectPosition.z + 0.18 + Math.cos(angle) * 0.12,
       },
       color: { r: 0.18, g: 0.5, b: 0.26 },
@@ -457,6 +582,23 @@ function representativeNoLensSamples(samples: ObjectSample[], col: number, row: 
 function sampleIndex(sample: ObjectSample): number {
   const parts = sample.id.split("-");
   return Number(parts[parts.length - 1]) || 0;
+}
+
+function resolutionScale(config: SceneConfig): number {
+  return config.resolution.columns / 224;
+}
+
+function pinholeLearningRadius(config: SceneConfig): number {
+  return (config.pinholeRadius > 0.09 ? 2.8 : 2.3) * resolutionScale(config);
+}
+
+function lensLearningRadius(config: SceneConfig): number {
+  const idealX = computeIdealImageX(config) ?? config.sensorPosition.x;
+  const focusError = Math.abs(config.sensorPosition.x - idealX);
+  const apertureTerm = Math.max(0.08, config.apertureRadius);
+  const circleOfConfusion = focusError * apertureTerm * 7.5;
+  const minimumReconstruction = 2.6;
+  return Math.min(18, (minimumReconstruction + circleOfConfusion) * resolutionScale(config));
 }
 
 function idealImagePoint(config: SceneConfig, objectPoint: Vec3): Vec3 {
@@ -508,12 +650,12 @@ function pointToSensorHit(config: SceneConfig, point: Vec3): SensorHit | null {
     return null;
   }
 
-  const colFloat = u * sensorGrid.columns - 0.5;
-  const rowFloat = v * sensorGrid.rows - 0.5;
+  const colFloat = u * config.resolution.columns - 0.5;
+  const rowFloat = v * config.resolution.rows - 0.5;
 
   return {
-    col: Math.min(Math.max(Math.round(colFloat), 0), sensorGrid.columns - 1),
-    row: Math.min(Math.max(Math.round(rowFloat), 0), sensorGrid.rows - 1),
+    col: Math.min(Math.max(Math.round(colFloat), 0), config.resolution.columns - 1),
+    row: Math.min(Math.max(Math.round(rowFloat), 0), config.resolution.rows - 1),
     u,
     v,
     colFloat,
@@ -537,16 +679,18 @@ function intersectRayWithX(origin: Vec3, direction: Vec3, x: number): Vec3 | nul
 function splat(
   accum: Float32Array,
   pixelToRays: Record<string, TracedRay[]>,
+  resolution: SensorResolution,
   hit: SensorHit,
   color: RgbColor,
   intensity: number,
   radius: number,
   ray: TracedRay,
+  trackPixelRays: boolean,
 ) {
   const minCol = Math.max(0, Math.floor(hit.colFloat - radius));
-  const maxCol = Math.min(sensorGrid.columns - 1, Math.ceil(hit.colFloat + radius));
+  const maxCol = Math.min(resolution.columns - 1, Math.ceil(hit.colFloat + radius));
   const minRow = Math.max(0, Math.floor(hit.rowFloat - radius));
-  const maxRow = Math.min(sensorGrid.rows - 1, Math.ceil(hit.rowFloat + radius));
+  const maxRow = Math.min(resolution.rows - 1, Math.ceil(hit.rowFloat + radius));
   const sigma = Math.max(0.42, radius * 0.62);
 
   for (let row = minRow; row <= maxRow; row += 1) {
@@ -560,16 +704,16 @@ function splat(
         continue;
       }
 
-      addColor(accum, col, row, color, intensity * weight);
-      if (weight > 0.08) {
+      addColor(accum, resolution, col, row, color, intensity * weight);
+      if (trackPixelRays && weight > 0.08) {
         pushPixelRay(pixelToRays, { col, row }, { ...ray, hitPixel: { col, row } });
       }
     }
   }
 }
 
-function addColor(accum: Float32Array, col: number, row: number, color: RgbColor, intensity: number) {
-  const offset = (row * sensorGrid.columns + col) * 3;
+function addColor(accum: Float32Array, resolution: SensorResolution, col: number, row: number, color: RgbColor, intensity: number) {
+  const offset = (row * resolution.columns + col) * 3;
   accum[offset] += color.r * intensity;
   accum[offset + 1] += color.g * intensity;
   accum[offset + 2] += color.b * intensity;
@@ -588,11 +732,19 @@ function pushPixelRay(pixelToRays: Record<string, TracedRay[]>, pixel: PixelHit,
   pixelToRays[key] = bucket;
 }
 
-function makeRay(id: string, points: Vec3[], sample: ObjectSample, hitPixel: PixelHit, intensity: number): TracedRay {
+function makeRay(
+  id: string,
+  points: Vec3[],
+  sample: ObjectSample,
+  hitPixel: PixelHit,
+  intensity: number,
+  extra: Partial<Pick<TracedRay, "aperturePoint" | "idealImagePoint" | "sensorHitPoint">> = {},
+): TracedRay {
   return {
     id,
     origin: points[0],
     points,
+    ...extra,
     color: rgbToCss(sample.color),
     intensity,
     hitPixel,
@@ -600,12 +752,28 @@ function makeRay(id: string, points: Vec3[], sample: ObjectSample, hitPixel: Pix
   };
 }
 
-function toPixelBuffer(accum: Float32Array, mode: OpticalMode): Uint8ClampedArray {
-  const buffer = new Uint8ClampedArray(sensorGrid.columns * sensorGrid.rows * 4);
-  const exposure = mode === "no-lens" ? 8.2 : mode === "pinhole" ? 1.25 : mode === "out-of-focus" ? 1.08 : 1;
+function toPixelBuffer(
+  accum: Float32Array,
+  mode: OpticalMode,
+  resolution: SensorResolution,
+  displayMode: SensorDisplayMode,
+): Uint8ClampedArray {
+  const buffer = new Uint8ClampedArray(resolution.columns * resolution.rows * 4);
+  const exposure =
+    displayMode === "samples"
+      ? mode === "pinhole"
+        ? 1.5
+        : 1.15
+      : mode === "no-lens"
+        ? 8.2
+        : mode === "pinhole"
+          ? 1.2
+          : mode === "out-of-focus"
+            ? 1.15
+            : 1.08;
   const floor = mode === "no-lens" ? 17 : 8;
 
-  for (let pixel = 0; pixel < sensorGrid.columns * sensorGrid.rows; pixel += 1) {
+  for (let pixel = 0; pixel < resolution.columns * resolution.rows; pixel += 1) {
     const inOffset = pixel * 3;
     const outOffset = pixel * 4;
     buffer[outOffset] = toneMap(accum[inOffset], exposure, floor);

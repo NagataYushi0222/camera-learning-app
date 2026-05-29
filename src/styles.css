@@ -262,9 +262,9 @@ button:disabled {
 }
 
 .sensor-panel {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0.85rem;
-  grid-template-rows: auto auto auto auto;
   height: 100%;
   min-height: 0;
   overflow-y: auto;
@@ -280,13 +280,17 @@ button:disabled {
   margin: 0 1rem;
   overflow: hidden;
   position: relative;
+  width: calc(100% - 2rem);
+  height: min(260px, calc((100vw - 2.6rem) / 1.55));
+  flex: 0 0 auto;
 }
 
 .sensor-canvas {
   display: block;
   height: 100%;
-  image-rendering: pixelated;
+  image-rendering: auto;
   inset: 0;
+  pointer-events: none;
   position: absolute;
   width: 100%;
   z-index: 1;
@@ -294,13 +298,85 @@ button:disabled {
 
 .sensor-grid {
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.13) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.13) 1px, transparent 1px);
-  background-size: calc(100% / 14) calc(100% / 9);
+    linear-gradient(to right, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: calc(100% / 28) calc(100% / 18);
   inset: 0;
   pointer-events: none;
   position: absolute;
   z-index: 3;
+}
+
+.display-panel {
+  border-top: 1px solid var(--line);
+  display: grid;
+  flex: 0 0 auto;
+  gap: 0.65rem;
+  padding: 0.1rem 1rem 0;
+}
+
+.display-row {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.display-row > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.segmented-control {
+  background: #edf2f2;
+  border: 1px solid #d5dddd;
+  border-radius: 8px;
+  display: grid;
+  overflow: hidden;
+}
+
+.segmented-control.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.display-row:nth-of-type(3) .segmented-control.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.segment-button {
+  background: transparent;
+  border-right: 1px solid #d5dddd;
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 800;
+  min-height: 32px;
+  padding: 0 0.35rem;
+}
+
+.segment-button:nth-child(2n) {
+  border-right: 1px solid #d5dddd;
+}
+
+.segment-button:last-child {
+  border-right: 0;
+}
+
+.segment-button.active {
+  background: var(--teal);
+  color: #ffffff;
+}
+
+.grid-toggle {
+  background: #edf2f2;
+  border-radius: 8px;
+  color: var(--teal-dark);
+  font-size: 0.8rem;
+  font-weight: 800;
+  min-height: 32px;
+  padding: 0 0.62rem;
+}
+
+.grid-toggle.active {
+  background: #dbeceb;
 }
 
 .selected-pixel-marker {
@@ -317,6 +393,7 @@ button:disabled {
 .pixel-info {
   border-top: 1px solid var(--line);
   display: grid;
+  flex: 0 0 auto;
   gap: 0.7rem;
   min-height: 0;
   padding: 0.2rem 1rem 0;
@@ -370,6 +447,7 @@ button:disabled {
 .experiment-panel {
   border-top: 1px solid var(--line);
   display: grid;
+  flex: 0 0 auto;
   gap: 0.7rem;
   padding: 0.1rem 1rem 0;
 }

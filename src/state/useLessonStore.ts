@@ -7,8 +7,10 @@ import {
   getRaysForPixel,
   renderSensorImage,
   selectedPixelFromGrid,
-  sensorGrid,
+  type RayDisplayMode,
   type SceneConfig,
+  type SensorDisplayMode,
+  type SensorQuality,
   type SensorRenderResult,
   type SimulationParams,
   type TracedRay,
@@ -21,6 +23,10 @@ type LessonState = {
   currentStepIndex: number;
   mode: OpticalMode;
   params: SimulationParams;
+  sensorDisplayMode: SensorDisplayMode;
+  sensorQuality: SensorQuality;
+  rayDisplayMode: RayDisplayMode;
+  showSensorGrid: boolean;
   sceneConfig: SceneConfig;
   sensorResult: SensorRenderResult;
   selectedPixel: SelectedPixel | null;
@@ -30,6 +36,10 @@ type LessonState = {
   nextStep: () => void;
   previousStep: () => void;
   setMode: (mode: OpticalMode) => void;
+  setSensorDisplayMode: (mode: SensorDisplayMode) => void;
+  setSensorQuality: (quality: SensorQuality) => void;
+  setRayDisplayMode: (mode: RayDisplayMode) => void;
+  toggleSensorGrid: () => void;
   updateSimulationParam: (key: SimulationParamKey, value: number | boolean) => void;
   selectPixel: (pixel: SelectedPixel) => void;
   selectCenterPixel: () => void;
@@ -40,20 +50,44 @@ type LessonState = {
 };
 
 const initialMode = lessonSteps[0].mode;
-const initialConfig = createSceneConfig(initialMode, defaultSimulationParams);
+const initialSensorDisplayMode: SensorDisplayMode = "learning";
+const initialSensorQuality: SensorQuality = "medium";
+const initialRayDisplayMode: RayDisplayMode = "representative";
+const initialConfig = createSceneConfig(initialMode, defaultSimulationParams, initialSensorQuality, initialSensorDisplayMode);
 const initialResult = renderSensorImage(initialConfig);
 
-function makeComputedState(mode: OpticalMode, params: SimulationParams, selectedPixel: SelectedPixel | null) {
-  const sceneConfig = createSceneConfig(mode, params);
+function normalizeSelectedPixel(pixel: SelectedPixel | null, result: SensorRenderResult): SelectedPixel | null {
+  if (!pixel) {
+    return null;
+  }
+
+  return selectedPixelFromGrid(
+    Math.floor(pixel.u * result.width),
+    Math.floor(pixel.v * result.height),
+    { columns: result.width, rows: result.height },
+  );
+}
+
+function makeComputedState(
+  mode: OpticalMode,
+  params: SimulationParams,
+  selectedPixel: SelectedPixel | null,
+  sensorQuality: SensorQuality,
+  sensorDisplayMode: SensorDisplayMode,
+) {
+  const sceneConfig = createSceneConfig(mode, params, sensorQuality, sensorDisplayMode);
   const sensorResult = renderSensorImage(sceneConfig);
-  const selectedRays = getRaysForPixel(sensorResult, selectedPixel);
+  const normalizedPixel = normalizeSelectedPixel(selectedPixel, sensorResult);
+  const selectedRays = getRaysForPixel(sensorResult, normalizedPixel);
 
   return {
     mode,
     params,
+    sensorQuality,
+    sensorDisplayMode,
     sceneConfig,
     sensorResult,
-    selectedPixel,
+    selectedPixel: normalizedPixel,
     selectedRays,
   };
 }
@@ -69,6 +103,10 @@ export const useLessonStore = create<LessonState>((set) => ({
   currentStepIndex: 0,
   mode: initialMode,
   params: defaultSimulationParams,
+  sensorDisplayMode: initialSensorDisplayMode,
+  sensorQuality: initialSensorQuality,
+  rayDisplayMode: initialRayDisplayMode,
+  showSensorGrid: false,
   sceneConfig: initialConfig,
   sensorResult: initialResult,
   selectedPixel: null,
@@ -79,7 +117,7 @@ export const useLessonStore = create<LessonState>((set) => ({
     set((state) => {
       const nextIndex = Math.min(state.currentStepIndex + 1, lessonSteps.length - 1);
       const mode = lessonSteps[nextIndex].mode;
-      const computed = makeComputedState(mode, paramsForMode(mode, state.params), null);
+      const computed = makeComputedState(mode, paramsForMode(mode, state.params), null, state.sensorQuality, state.sensorDisplayMode);
       return {
         currentStepIndex: nextIndex,
         ...computed,
@@ -89,21 +127,27 @@ export const useLessonStore = create<LessonState>((set) => ({
     set((state) => {
       const nextIndex = Math.max(state.currentStepIndex - 1, 0);
       const mode = lessonSteps[nextIndex].mode;
-      const computed = makeComputedState(mode, paramsForMode(mode, state.params), null);
+      const computed = makeComputedState(mode, paramsForMode(mode, state.params), null, state.sensorQuality, state.sensorDisplayMode);
       return {
         currentStepIndex: nextIndex,
         ...computed,
       };
     }),
   setMode: (mode) =>
-    set((state) => makeComputedState(mode, paramsForMode(mode, state.params), null)),
+    set((state) => makeComputedState(mode, paramsForMode(mode, state.params), null, state.sensorQuality, state.sensorDisplayMode)),
+  setSensorDisplayMode: (sensorDisplayMode) =>
+    set((state) => makeComputedState(state.mode, state.params, state.selectedPixel, state.sensorQuality, sensorDisplayMode)),
+  setSensorQuality: (sensorQuality) =>
+    set((state) => makeComputedState(state.mode, state.params, state.selectedPixel, sensorQuality, state.sensorDisplayMode)),
+  setRayDisplayMode: (rayDisplayMode) => set({ rayDisplayMode }),
+  toggleSensorGrid: () => set((state) => ({ showSensorGrid: !state.showSensorGrid })),
   updateSimulationParam: (key, value) =>
     set((state) => {
       const params = {
         ...state.params,
         [key]: value,
       };
-      return makeComputedState(state.mode, params, state.selectedPixel);
+      return makeComputedState(state.mode, params, state.selectedPixel, state.sensorQuality, state.sensorDisplayMode);
     }),
   selectPixel: (pixel) =>
     set((state) => ({
@@ -113,8 +157,9 @@ export const useLessonStore = create<LessonState>((set) => ({
   selectCenterPixel: () =>
     set((state) => {
       const pixel = selectedPixelFromGrid(
-        Math.floor(sensorGrid.columns / 2),
-        Math.floor(sensorGrid.rows / 2),
+        Math.floor(state.sensorResult.width / 2),
+        Math.floor(state.sensorResult.height / 2),
+        { columns: state.sensorResult.width, rows: state.sensorResult.height },
       );
       return {
         selectedPixel: pixel,
@@ -130,6 +175,6 @@ export const useLessonStore = create<LessonState>((set) => ({
         ...state.params,
         lightEnabled: !state.params.lightEnabled,
       };
-      return makeComputedState(state.mode, params, state.selectedPixel);
+      return makeComputedState(state.mode, params, state.selectedPixel, state.sensorQuality, state.sensorDisplayMode);
     }),
 }));

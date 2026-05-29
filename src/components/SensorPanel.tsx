@@ -1,25 +1,30 @@
-import { Crosshair, MousePointer2, Power, X } from "lucide-react";
+import { Crosshair, Grid2X2, MousePointer2, Power, X } from "lucide-react";
 import type { MouseEvent } from "react";
 import { useEffect, useRef } from "react";
 import {
   modeDescriptions,
   modeLabels,
   pixelInfoText,
+  rayDisplayModeLabels,
   selectedPixelFromGrid,
-  sensorGrid,
+  sensorDisplayModeLabels,
+  sensorQualityLabels,
+  type RayDisplayMode,
+  type SensorDisplayMode,
+  type SensorQuality,
   type SimulationParams,
 } from "../simulation/opticsModel";
 import { useLessonStore } from "../state/useLessonStore";
 import type { SelectedPixel } from "../types";
 
-function pixelFromPointer(event: MouseEvent<HTMLDivElement>): SelectedPixel {
+function pixelFromPointer(event: MouseEvent<HTMLDivElement>, width: number, height: number): SelectedPixel {
   const rect = event.currentTarget.getBoundingClientRect();
   const u = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
   const v = Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1);
-  const col = Math.min(Math.floor(u * sensorGrid.columns), sensorGrid.columns - 1);
-  const row = Math.min(Math.floor(v * sensorGrid.rows), sensorGrid.rows - 1);
+  const col = Math.min(Math.floor(u * width), width - 1);
+  const row = Math.min(Math.floor(v * height), height - 1);
 
-  return selectedPixelFromGrid(col, row);
+  return selectedPixelFromGrid(col, row, { columns: width, rows: height });
 }
 
 function formatValue(value: number, digits = 2): string {
@@ -66,11 +71,19 @@ export function SensorPanel() {
   const {
     mode,
     params,
+    sensorDisplayMode,
+    sensorQuality,
+    rayDisplayMode,
+    showSensorGrid,
     sensorResult,
     selectedPixel,
     selectedRays,
     selectPixel,
     clearSelectedPixel,
+    setSensorDisplayMode,
+    setSensorQuality,
+    setRayDisplayMode,
+    toggleSensorGrid,
     updateSimulationParam,
     toggleLight,
   } = useLessonStore();
@@ -89,6 +102,7 @@ export function SensorPanel() {
       return;
     }
 
+    context.imageSmoothingEnabled = true;
     const imageData = new ImageData(
       new Uint8ClampedArray(sensorResult.pixelBuffer),
       sensorResult.width,
@@ -113,13 +127,13 @@ export function SensorPanel() {
 
       <div
         className="sensor-screen"
-        onClick={(event) => selectPixel(pixelFromPointer(event))}
+        onClick={(event) => selectPixel(pixelFromPointer(event, sensorResult.width, sensorResult.height))}
         role="button"
         tabIndex={0}
         aria-label="クリックしてピクセルを選択"
       >
         <canvas ref={canvasRef} className="sensor-canvas" aria-label="光線計算によるセンサー画像" />
-        <div className="sensor-grid" aria-hidden="true" />
+        {showSensorGrid ? <div className="sensor-grid" aria-hidden="true" /> : null}
         {selectedPixel ? (
           <span
             className="selected-pixel-marker"
@@ -127,6 +141,58 @@ export function SensorPanel() {
             aria-hidden="true"
           />
         ) : null}
+      </div>
+
+      <div className="display-panel" aria-label="表示設定">
+        <div className="display-row">
+          <span>センサー表示</span>
+          <div className="segmented-control compact">
+            {(Object.keys(sensorDisplayModeLabels) as SensorDisplayMode[]).map((displayMode) => (
+              <button
+                key={displayMode}
+                className={displayMode === sensorDisplayMode ? "segment-button active" : "segment-button"}
+                type="button"
+                onClick={() => setSensorDisplayMode(displayMode)}
+              >
+                {sensorDisplayModeLabels[displayMode]}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="display-row">
+          <span>品質</span>
+          <div className="segmented-control compact">
+            {(Object.keys(sensorQualityLabels) as SensorQuality[]).map((quality) => (
+              <button
+                key={quality}
+                className={quality === sensorQuality ? "segment-button active" : "segment-button"}
+                type="button"
+                onClick={() => setSensorQuality(quality)}
+              >
+                {sensorQualityLabels[quality]}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="display-row">
+          <span>光線表示</span>
+          <div className="segmented-control compact">
+            {(Object.keys(rayDisplayModeLabels) as RayDisplayMode[]).map((displayMode) => (
+              <button
+                key={displayMode}
+                className={displayMode === rayDisplayMode ? "segment-button active" : "segment-button"}
+                type="button"
+                onClick={() => setRayDisplayMode(displayMode)}
+              >
+                {rayDisplayModeLabels[displayMode]}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button className={showSensorGrid ? "grid-toggle active" : "grid-toggle"} type="button" onClick={toggleSensorGrid}>
+          <Grid2X2 size={15} aria-hidden="true" />
+          グリッド
+        </button>
       </div>
 
       <div className="pixel-info">
@@ -153,7 +219,14 @@ export function SensorPanel() {
           <button
             className="secondary-action"
             type="button"
-            onClick={() => selectPixel(selectedPixelFromGrid(Math.floor(sensorGrid.columns / 2), Math.floor(sensorGrid.rows / 2)))}
+            onClick={() =>
+              selectPixel(
+                selectedPixelFromGrid(Math.floor(sensorResult.width / 2), Math.floor(sensorResult.height / 2), {
+                  columns: sensorResult.width,
+                  rows: sensorResult.height,
+                }),
+              )
+            }
           >
             <MousePointer2 size={16} aria-hidden="true" />
             中央を選択

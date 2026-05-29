@@ -5,9 +5,12 @@ import { Fragment, useMemo } from "react";
 import * as THREE from "three";
 import {
   modeLabels,
+  rayDisplayModeLabels,
   sensorGrid,
   sensorPoint,
   type SceneConfig,
+  type RayDisplayMode,
+  type SensorRenderResult,
   type TracedRay,
   type Vec3,
 } from "../simulation/opticsModel";
@@ -17,17 +20,29 @@ function toTuple(point: Vec3): [number, number, number] {
   return [point.x, point.y, point.z];
 }
 
-function RayLines({ rays, selected = false }: { rays: TracedRay[]; selected?: boolean }) {
+function RayLines({
+  rays,
+  selected = false,
+  color,
+  opacity,
+  lineWidth,
+}: {
+  rays: TracedRay[];
+  selected?: boolean;
+  color?: string;
+  opacity?: number;
+  lineWidth?: number;
+}) {
   return (
     <>
       {rays.map((ray, index) => (
         <Line
           key={`${ray.id}-${index}`}
           points={ray.points.map(toTuple)}
-          color={ray.color}
-          lineWidth={selected ? 4 : 1.4}
+          color={color ?? ray.color}
+          lineWidth={lineWidth ?? (selected ? 4 : 1.4)}
           transparent
-          opacity={selected ? Math.min(1, 0.48 + ray.intensity * 2.2) : 0.22}
+          opacity={opacity ?? (selected ? Math.min(1, 0.54 + ray.intensity * 2.2) : 0.22)}
         />
       ))}
     </>
@@ -264,9 +279,127 @@ function CameraWireframe({ config }: { config: SceneConfig }) {
   );
 }
 
+function pickRepresentativeRays(result: SensorRenderResult, mode: SceneConfig["mode"]): TracedRay[] {
+  if (mode === "no-lens") {
+    const unique = new Map<string, TracedRay>();
+    for (const ray of result.rays) {
+      if (!unique.has(ray.sourceSampleId)) {
+        unique.set(ray.sourceSampleId, ray);
+      }
+      if (unique.size >= 6) {
+        break;
+      }
+    }
+    return [...unique.values()];
+  }
+
+  const grouped = new Map<string, TracedRay[]>();
+  for (const ray of result.rays) {
+    const bucket = grouped.get(ray.sourceSampleId) ?? [];
+    bucket.push(ray);
+    grouped.set(ray.sourceSampleId, bucket);
+  }
+
+  const bestGroup = [...grouped.values()].sort((a, b) => b.length - a.length)[0] ?? [];
+  if (bestGroup.length <= 7) {
+    return bestGroup;
+  }
+
+  const centerRay = bestGroup.find((ray) => ray.aperturePoint && Math.hypot(ray.aperturePoint.y, ray.aperturePoint.z) < 0.04) ?? bestGroup[0];
+  const edgeRays = bestGroup
+    .filter((ray) => ray !== centerRay)
+    .sort((a, b) => {
+      const ar = a.aperturePoint ? Math.hypot(a.aperturePoint.y, a.aperturePoint.z) : 0;
+      const br = b.aperturePoint ? Math.hypot(b.aperturePoint.y, b.aperturePoint.z) : 0;
+      return br - ar;
+    })
+    .slice(0, 6);
+
+  return [centerRay, ...edgeRays];
+}
+
+function limitSelectedRays(rays: TracedRay[]): TracedRay[] {
+  return rays.slice(0, 12);
+}
+
+function averagePoint(points: Vec3[]): Vec3 {
+  if (points.length === 0) {
+    return { x: 0, y: 0, z: 0 };
+  }
+
+  const total = points.reduce(
+    (sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y, z: sum.z + point.z }),
+    { x: 0, y: 0, z: 0 },
+  );
+
+  return { x: total.x / points.length, y: total.y / points.length, z: total.z / points.length };
+}
+
+function FluxSegment({ from, to, radiusStart, radiusEnd, color, opacity }: {
+  from: Vec3;
+  to: Vec3;
+  radiusStart: number;
+  radiusEnd: number;
+  color: string;
+  opacity: number;
+}) {
+  const fromVector = new THREE.Vector3(from.x, from.y, from.z);
+  const toVector = new THREE.Vector3(to.x, to.y, to.z);
+  const direction = toVector.clone().sub(fromVector);
+  const length = direction.length();
+  const midpoint = fromVector.clone().add(direction.multiplyScalar(0.5));
+  const quaternion = beamQuaternion(from, to, "y");
+
+  return (
+    <mesh position={[midpoint.x, midpoint.y, midpoint.z]} quaternion={quaternion}>
+      <cylinderGeometry args={[radiusEnd, radiusStart, length, 36, 1, true]} />
+      <meshBasicMaterial color={color} transparent opacity={opacity} side={THREE.DoubleSide} depthWrite={false} />
+    </mesh>
+  );
+}
+
+function FluxVolumes({ config, rays }: { config: SceneConfig; rays: TracedRay[] }) {
+  const visibleRays = rays.length > 0 ? rays : [];
+  const objectPoint = visibleRays[0]?.origin ?? config.objectPosition;
+  const apertureCenter = config.lensPosition;
+  const sensorPoints = visibleRays.map((ray) => ray.sensorHitPoint ?? ray.points[ray.points.length - 1]);
+  const sensorCenter = sensorPoints.length ? averagePoint(sensorPoints) : config.sensorPosition;
+
+  if (config.mode === "no-lens") {
+    return (
+      <FluxSegment
+        from={config.objectPosition}
+        to={config.sensorPosition}
+        radiusStart={0.28}
+        radiusEnd={0.96}
+        color="#d65a3b"
+        opacity={0.12}
+      />
+    );
+  }
+
+  if (config.mode === "pinhole") {
+    return (
+      <>
+        <FluxSegment from={objectPoint} to={apertureCenter} radiusStart={0.16} radiusEnd={0.035} color="#ffd45c" opacity={0.18} />
+        <FluxSegment from={apertureCenter} to={sensorCenter} radiusStart={0.035} radiusEnd={0.12} color="#ffe79a" opacity={0.16} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <FluxSegment from={objectPoint} to={apertureCenter} radiusStart={0.1} radiusEnd={config.apertureRadius} color="#ffd45c" opacity={0.15} />
+      <FluxSegment from={apertureCenter} to={sensorCenter} radiusStart={config.apertureRadius} radiusEnd={config.mode === "out-of-focus" ? 0.36 : 0.08} color="#fff0b8" opacity={0.13} />
+    </>
+  );
+}
+
 function SceneContent() {
-  const { sceneConfig, sensorResult, selectedPixel, selectedRays, showRays, showWavefronts } = useLessonStore();
-  const guideRays = useMemo(() => sensorResult.rays.slice(0, 120), [sensorResult]);
+  const { sceneConfig, sensorResult, selectedPixel, selectedRays, showRays, showWavefronts, rayDisplayMode } = useLessonStore();
+  const representativeRays = useMemo(() => pickRepresentativeRays(sensorResult, sceneConfig.mode), [sceneConfig.mode, sensorResult]);
+  const visibleSelectedRays = useMemo(() => limitSelectedRays(selectedRays), [selectedRays]);
+  const debugRays = useMemo(() => sensorResult.rays.slice(0, 180), [sensorResult]);
 
   return (
     <Fragment>
@@ -286,15 +419,31 @@ function SceneContent() {
       <LensObject config={sceneConfig} />
       <SensorPlane config={sceneConfig} selectedPixel={selectedPixel} />
       <CameraWireframe config={sceneConfig} />
-      {showRays ? <RayLines rays={guideRays} /> : null}
-      <RayLines rays={selectedRays} selected />
+      {showRays && rayDisplayMode === "representative" ? (
+        <RayLines rays={representativeRays} color="#f2a23a" opacity={0.72} lineWidth={2.2} />
+      ) : null}
+      {showRays && rayDisplayMode === "selected" ? (
+        <>
+          <RayLines rays={visibleSelectedRays} selected color="#ffe36e" opacity={0.94} lineWidth={4} />
+          {visibleSelectedRays.length === 0 ? <RayLines rays={representativeRays.slice(0, 3)} color="#6f7780" opacity={0.16} lineWidth={1.2} /> : null}
+        </>
+      ) : null}
+      {showRays && rayDisplayMode === "flux" ? (
+        <FluxVolumes config={sceneConfig} rays={visibleSelectedRays.length ? visibleSelectedRays : representativeRays} />
+      ) : null}
+      {showRays && rayDisplayMode === "debug" ? (
+        <>
+          <RayLines rays={debugRays} color={sceneConfig.mode === "no-lens" ? "#d75b3c" : "#6f7780"} opacity={sceneConfig.mode === "no-lens" ? 0.12 : 0.18} lineWidth={1} />
+          <RayLines rays={visibleSelectedRays} selected color="#ffe36e" opacity={0.96} lineWidth={4} />
+        </>
+      ) : null}
       <OrbitControls makeDefault enableDamping dampingFactor={0.08} minDistance={3.5} maxDistance={9} />
     </Fragment>
   );
 }
 
 export function SceneView() {
-  const { mode, selectedPixel, selectedRays, showRays, showWavefronts, toggleRays, toggleWavefronts } = useLessonStore();
+  const { mode, selectedPixel, selectedRays, showRays, showWavefronts, rayDisplayMode, toggleRays, toggleWavefronts } = useLessonStore();
 
   return (
     <div className="scene-shell">
@@ -326,12 +475,12 @@ export function SceneView() {
           {selectedPixel ? (
             <>
               <RadioTower size={15} aria-hidden="true" />
-              寄与光線 {selectedRays.length} 本
+              {rayDisplayModeLabels[rayDisplayMode]} / 寄与光線 {selectedRays.length} 本
             </>
           ) : (
             <>
               <Eye size={15} aria-hidden="true" />
-              右のセンサーをクリック
+              {rayDisplayModeLabels[rayDisplayMode]} / 右のセンサーをクリック
             </>
           )}
         </span>
