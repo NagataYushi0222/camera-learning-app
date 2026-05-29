@@ -153,6 +153,8 @@ export const useLessonStore = create<LessonState>((set) => ({
     set((state) => ({
       selectedPixel: pixel,
       selectedRays: getRaysForPixel(state.sensorResult, pixel),
+      rayDisplayMode: "selected",
+      showRays: true,
     })),
   selectCenterPixel: () =>
     set((state) => {
@@ -164,6 +166,8 @@ export const useLessonStore = create<LessonState>((set) => ({
       return {
         selectedPixel: pixel,
         selectedRays: getRaysForPixel(state.sensorResult, pixel),
+        rayDisplayMode: "selected",
+        showRays: true,
       };
     }),
   clearSelectedPixel: () => set({ selectedPixel: null, selectedRays: [] }),
