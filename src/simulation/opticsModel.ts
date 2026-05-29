@@ -9,7 +9,7 @@ export const sensorGrid = {
 
 export type SensorDisplayMode = "learning" | "samples" | "debug";
 export type SensorQuality = "low" | "medium" | "high";
-export type RayDisplayMode = "representative" | "selected" | "flux" | "debug";
+export type RayDisplayMode = "representative" | "contributors" | "source-bundle" | "debug";
 
 export type SensorResolution = {
   columns: number;
@@ -30,9 +30,9 @@ export const sensorDisplayModeLabels: Record<SensorDisplayMode, string> = {
 
 export const rayDisplayModeLabels: Record<RayDisplayMode, string> = {
   representative: "代表光線",
-  selected: "選択のみ",
-  flux: "光束表示",
-  debug: "デバッグ",
+  contributors: "このピクセルに届いた光",
+  "source-bundle": "対応する物体点の光束",
+  debug: "全光線デバッグ",
 };
 
 export type Vec3 = {
@@ -114,13 +114,24 @@ export type PixelHit = {
   row: number;
 };
 
+export type RayKind =
+  | "sensor-sample"
+  | "selected-pixel-contributor"
+  | "source-bundle"
+  | "representative"
+  | "debug";
+
 export type TracedRay = {
   id: string;
   origin: Vec3;
+  sourcePosition: Vec3;
   points: Vec3[];
-  aperturePoint?: Vec3;
-  idealImagePoint?: Vec3;
-  sensorHitPoint?: Vec3;
+  aperturePoint: Vec3 | null;
+  idealImagePoint: Vec3 | null;
+  sensorHitPoint: Vec3;
+  exactHitPixel: PixelHit | null;
+  displayedHitPixel: PixelHit;
+  rayKind: RayKind;
   color: string;
   intensity: number;
   hitPixel: PixelHit;
@@ -352,7 +363,7 @@ export function sensorPoint(config: SceneConfig, pixel: SelectedPixel): Vec3 {
   };
 }
 
-export function getRaysForPixel(result: SensorRenderResult, pixel: SelectedPixel | null): TracedRay[] {
+function getRawPixelRays(result: SensorRenderResult, pixel: SelectedPixel | null): TracedRay[] {
   if (!pixel) {
     return [];
   }
@@ -381,20 +392,159 @@ export function getRaysForPixel(result: SensorRenderResult, pixel: SelectedPixel
   return [];
 }
 
-export function pixelInfoText(mode: OpticalMode, pixel: SelectedPixel | null, rays: TracedRay[]): string {
+export function getPixelContributorRays(result: SensorRenderResult, pixel: SelectedPixel | null): TracedRay[] {
   if (!pixel) {
-    return "スクリーン上のピクセルをクリックすると、そのピクセルに実際に寄与した光線を左で表示します。";
+    return [];
+  }
+
+  if (result.config.mode === "no-lens") {
+    return getNoLensAnalysisRays(result.config, pixel, result.samples);
+  }
+
+  return getRawPixelRays(result, pixel)
+    .slice(0, maxRaysPerPixel)
+    .map((ray) => ({ ...ray, rayKind: "selected-pixel-contributor" }));
+}
+
+export function getRaysForPixel(result: SensorRenderResult, pixel: SelectedPixel | null): TracedRay[] {
+  return getPixelContributorRays(result, pixel);
+}
+
+export function getDominantSourceSample(result: SensorRenderResult, pixel: SelectedPixel | null): ObjectSample | null {
+  if (!pixel) {
+    return null;
+  }
+
+  const candidates = result.config.mode === "no-lens" ? getNoLensAnalysisRays(result.config, pixel, result.samples) : getRawPixelRays(result, pixel);
+  const totals = new Map<string, number>();
+
+  for (const ray of candidates) {
+    totals.set(ray.sourceSampleId, (totals.get(ray.sourceSampleId) ?? 0) + ray.intensity);
+  }
+
+  const dominantId = [...totals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  return dominantId ? (result.samples.find((sample) => sample.id === dominantId) ?? null) : null;
+}
+
+export function getSourceBundleRays(config: SceneConfig, sourceSample: ObjectSample | null): TracedRay[] {
+  if (!sourceSample || !config.lightEnabled || config.lightIntensity <= 0.001) {
+    return [];
+  }
+
+  if (config.mode === "no-lens") {
+    const centerPixel = selectedPixelFromGrid(Math.floor(config.resolution.columns / 2), Math.floor(config.resolution.rows / 2), config.resolution);
+    const hitPoint = sensorPoint(config, centerPixel);
+    const displayedHit = pointToDisplayedHit(config, hitPoint);
+    return [
+      makeRay({
+        id: `source-bundle-nolens-${sourceSample.id}`,
+        points: [sourceSample.position, hitPoint],
+        sample: sourceSample,
+        exactHitPixel: displayedHit,
+        displayedHitPixel: displayedHit,
+        sensorHitPoint: hitPoint,
+        intensity: sourceSample.intensity * sampleLight(sourceSample, config),
+        rayKind: "source-bundle",
+      }),
+    ];
+  }
+
+  const apertureRadius = config.mode === "pinhole" ? Math.max(0.002, config.pinholeRadius) : Math.max(0.04, config.apertureRadius);
+  const aperturePoints = diskSamples(config.lensPosition, apertureRadius, config.mode === "pinhole" ? Math.min(15, config.rayCount) : config.rayCount);
+  const imagePoint = config.mode === "pinhole" ? null : computeIdealImagePoint(config, sourceSample.position);
+  const rays: TracedRay[] = [];
+
+  for (const aperturePoint of aperturePoints) {
+    if (radialDistance(aperturePoint, config.lensPosition) > apertureRadius) {
+      continue;
+    }
+
+    const direction = imagePoint ? sub(imagePoint, aperturePoint) : sub(aperturePoint, sourceSample.position);
+    const hitPoint = intersectRayWithX(aperturePoint, direction, config.sensorPosition.x);
+    if (!hitPoint) {
+      continue;
+    }
+
+    const exactHit = pointToSensorHit(config, hitPoint);
+    const displayedHit = exactHit ?? pointToDisplayedHit(config, hitPoint);
+    const points = imagePoint ? [sourceSample.position, aperturePoint, imagePoint, hitPoint] : [sourceSample.position, aperturePoint, hitPoint];
+
+    rays.push(
+      makeRay({
+        id: `source-bundle-${sourceSample.id}-${rays.length}`,
+        points,
+        sample: sourceSample,
+        exactHitPixel: exactHit,
+        displayedHitPixel: displayedHit,
+        sensorHitPoint: hitPoint,
+        aperturePoint,
+        idealImagePoint: imagePoint,
+        intensity: sourceSample.intensity * sampleLight(sourceSample, config),
+        rayKind: "source-bundle",
+      }),
+    );
+  }
+
+  return rays.slice(0, 25);
+}
+
+export function getNoLensAnalysisRays(config: SceneConfig, pixel: SelectedPixel | null, samples: ObjectSample[]): TracedRay[] {
+  if (!pixel || !config.lightEnabled || config.lightIntensity <= 0.001) {
+    return [];
+  }
+
+  const hitPoint = sensorPoint(config, pixel);
+  const hit = pointToDisplayedHit(config, hitPoint);
+  return stratifiedObjectSamples(samples, 28).map((sample, index) =>
+    makeRay({
+      id: `nolens-analysis-${sample.id}-${index}`,
+      points: [sample.position, hitPoint],
+      sample,
+      exactHitPixel: hit,
+      displayedHitPixel: hit,
+      sensorHitPoint: hitPoint,
+      intensity: sample.intensity * sampleLight(sample, config),
+      rayKind: "selected-pixel-contributor",
+    }),
+  );
+}
+
+export function getRepresentativeRays(config: SceneConfig, samples: ObjectSample[]): TracedRay[] {
+  if (!config.lightEnabled || config.lightIntensity <= 0.001) {
+    return [];
+  }
+
+  if (config.mode === "no-lens") {
+    const centerPixel = selectedPixelFromGrid(Math.floor(config.resolution.columns / 2), Math.floor(config.resolution.rows / 2), config.resolution);
+    return getNoLensAnalysisRays(config, centerPixel, samples).slice(0, 7).map((ray) => ({ ...ray, rayKind: "representative" }));
+  }
+
+  const sourceSample =
+    nearestSample(samples, { x: config.objectPosition.x, y: config.objectPosition.y + 0.08, z: config.objectPosition.z }) ?? samples[0] ?? null;
+  return getSourceBundleRays(config, sourceSample)
+    .slice(0, 7)
+    .map((ray) => ({ ...ray, rayKind: "representative" }));
+}
+
+export function pixelInfoText(
+  mode: OpticalMode,
+  pixel: SelectedPixel | null,
+  contributorRays: TracedRay[],
+  sourceBundleRays: TracedRay[] = [],
+): string {
+  if (!pixel) {
+    return "スクリーン上のピクセルをクリックすると、「届いた光」と「対応する物体点の光束」を分けて確認できます。";
   }
 
   const position = `列${pixel.col + 1} / 行${pixel.row + 1}`;
-  const count = rays.length;
+  const count = contributorRays.length;
 
   if (count === 0) {
     return `${position}: このピクセルに届いたサンプル光線はほとんどありません。`;
   }
 
   if (mode === "no-lens") {
-    return `${position}: ${count}本の代表光線を表示中です。いろいろな物体点からの光が同じピクセルで混ざっています。`;
+    return `${position}: 実際には物体全体の多数の点から光が届いています。表示は上下左右・葉・茎を含む${count}本の代表光線です。`;
   }
 
   if (mode === "pinhole") {
@@ -402,10 +552,10 @@ export function pixelInfoText(mode: OpticalMode, pixel: SelectedPixel | null, ra
   }
 
   if (mode === "out-of-focus") {
-    return `${position}: ${count}本の代表光線を表示中です。像面からずれたため、光がこの付近へ広がっています。`;
+    return `${position}: このピクセルには${count}本の寄与光線があります。対応する物体点の光束${sourceBundleRays.length}本を見ると、理想像面で集まった後に広がる様子を確認できます。`;
   }
 
-  return `${position}: ${count}本の代表光線を表示中です。同じ物体点から来た光がセンサー上で集まっています。`;
+  return `${position}: このピクセルには${count}本の寄与光線があります。対応する物体点の光束${sourceBundleRays.length}本がセンサー上へ集まります。`;
 }
 
 export function renderSensorImage(config: SceneConfig): SensorRenderResult {
@@ -499,14 +649,16 @@ function renderNoLens(
       const representative = representativeNoLensSamples(samples, col, row);
       for (const sample of representative.slice(0, 5)) {
         const hitPixel = { col, row };
-        const ray = makeRay(
-          `nolens-${sample.id}-${col}-${row}`,
-          [sample.position, hitPoint],
+        const ray = makeRay({
+          id: `nolens-${sample.id}-${col}-${row}`,
+          points: [sample.position, hitPoint],
           sample,
-          hitPixel,
-          sampleLight(sample, config) * 0.1,
-          { sensorHitPoint: hitPoint },
-        );
+          exactHitPixel: hitPixel,
+          displayedHitPixel: hitPixel,
+          sensorHitPoint: hitPoint,
+          intensity: sampleLight(sample, config) * 0.1,
+          rayKind: "sensor-sample",
+        });
         pushPixelRay(pixelToRays, hitPixel, ray);
       }
     }
@@ -522,7 +674,16 @@ function renderNoLens(
       if (!hit) {
         continue;
       }
-      const ray = makeRay(`nolens-sample-${sample.id}-${scatter}`, [sample.position, hitPoint], sample, hit, sampleLight(sample, config) * 0.08);
+      const ray = makeRay({
+        id: `nolens-sample-${sample.id}-${scatter}`,
+        points: [sample.position, hitPoint],
+        sample,
+        exactHitPixel: hit,
+        displayedHitPixel: hit,
+        sensorHitPoint: hitPoint,
+        intensity: sampleLight(sample, config) * 0.08,
+        rayKind: "sensor-sample",
+      });
       splat(sampleAccum, pixelToRays, config.resolution, hit, sample.color, sample.intensity * sampleLight(sample, config) * 0.08, 0.45, ray, false);
     }
   }
@@ -530,7 +691,19 @@ function renderNoLens(
   for (let index = 0; index < Math.min(90, samples.length); index += 9) {
     const sample = samples[index];
     const target = sensorPoint(config, selectedPixelFromGrid((index * 13) % config.resolution.columns, (index * 7) % config.resolution.rows, config.resolution));
-    rays.push(makeRay(`nolens-guide-${sample.id}`, [sample.position, target], sample, pointToSensorHit(config, target) ?? { col: 0, row: 0 }, 0.18));
+    const exactHit = pointToSensorHit(config, target);
+    rays.push(
+      makeRay({
+        id: `nolens-guide-${sample.id}`,
+        points: [sample.position, target],
+        sample,
+        exactHitPixel: exactHit,
+        displayedHitPixel: exactHit ?? pointToDisplayedHit(config, target),
+        sensorHitPoint: target,
+        intensity: 0.18,
+        rayKind: "debug",
+      }),
+    );
   }
 }
 
@@ -558,14 +731,17 @@ function renderPinhole(
 
       const light = sampleLight(sample, config);
       const rayIntensity = sample.intensity * light * brightness;
-      const ray = makeRay(
-        `pinhole-${sample.id}-${aperturePoint.y.toFixed(2)}-${aperturePoint.z.toFixed(2)}`,
-        [sample.position, aperturePoint, hitPoint],
+      const ray = makeRay({
+        id: `pinhole-${sample.id}-${aperturePoint.y.toFixed(2)}-${aperturePoint.z.toFixed(2)}`,
+        points: [sample.position, aperturePoint, hitPoint],
         sample,
-        hit,
-        rayIntensity,
-        { aperturePoint, sensorHitPoint: hitPoint },
-      );
+        exactHitPixel: hit,
+        displayedHitPixel: hit,
+        sensorHitPoint: hitPoint,
+        aperturePoint,
+        intensity: rayIntensity,
+        rayKind: "sensor-sample",
+      });
       splat(learningAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, pinholeLearningRadius(config), ray, true);
       splat(sampleAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, 0.45, ray, false);
       splat(debugAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, 0.28, ray, false);
@@ -590,7 +766,7 @@ function renderLens(
   const brightness = config.mode === "out-of-focus" ? 0.17 : 0.26;
 
   for (const sample of samples) {
-    const imagePoint = idealImagePoint(config, sample.position);
+    const imagePoint = computeIdealImagePoint(config, sample.position);
 
     for (const aperturePoint of aperturePoints) {
       if (radialDistance(aperturePoint, config.lensPosition) > config.apertureRadius) {
@@ -609,14 +785,18 @@ function renderLens(
       const focusDistance = Math.abs((computeIdealImageX(config) ?? config.sensorPosition.x) - config.sensorPosition.x);
       const defocusBoost = config.mode === "out-of-focus" ? Math.min(1.25, 0.85 + focusDistance * 0.35) : 1;
       const rayIntensity = sample.intensity * light * brightness * defocusBoost;
-      const ray = makeRay(
-        `lens-${sample.id}-${aperturePoint.y.toFixed(2)}-${aperturePoint.z.toFixed(2)}`,
-        [sample.position, aperturePoint, hitPoint],
+      const ray = makeRay({
+        id: `lens-${sample.id}-${aperturePoint.y.toFixed(2)}-${aperturePoint.z.toFixed(2)}`,
+        points: [sample.position, aperturePoint, imagePoint, hitPoint],
         sample,
-        hit,
-        rayIntensity,
-        { aperturePoint, idealImagePoint: imagePoint, sensorHitPoint: hitPoint },
-      );
+        exactHitPixel: hit,
+        displayedHitPixel: hit,
+        sensorHitPoint: hitPoint,
+        aperturePoint,
+        idealImagePoint: imagePoint,
+        intensity: rayIntensity,
+        rayKind: "sensor-sample",
+      });
       splat(learningAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, lensLearningRadius(config), ray, true);
       splat(sampleAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, 0.42, ray, false);
       splat(debugAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, 0.24, ray, false);
@@ -735,6 +915,80 @@ function representativeNoLensSamples(samples: ObjectSample[], col: number, row: 
   return selected;
 }
 
+function stratifiedObjectSamples(samples: ObjectSample[], targetCount: number): ObjectSample[] {
+  const groups: Record<string, ObjectSample[]> = {
+    center: [],
+    top: [],
+    bottom: [],
+    left: [],
+    right: [],
+    leaf: [],
+    stem: [],
+  };
+
+  for (const sample of samples) {
+    if (sample.id.startsWith("leaf")) {
+      groups.leaf.push(sample);
+    } else if (sample.id.startsWith("stem")) {
+      groups.stem.push(sample);
+    } else if (sample.position.y > 0.2) {
+      groups.top.push(sample);
+    } else if (sample.position.y < -0.2) {
+      groups.bottom.push(sample);
+    } else if (sample.position.z < -0.16) {
+      groups.left.push(sample);
+    } else if (sample.position.z > 0.16) {
+      groups.right.push(sample);
+    } else {
+      groups.center.push(sample);
+    }
+  }
+
+  const selected: ObjectSample[] = [];
+  const plan: Array<[keyof typeof groups, number]> = [
+    ["center", 5],
+    ["top", 4],
+    ["bottom", 4],
+    ["left", 4],
+    ["right", 4],
+    ["leaf", 4],
+    ["stem", 3],
+  ];
+
+  for (const [groupName, count] of plan) {
+    selected.push(...evenlyPick(groups[groupName], count));
+  }
+
+  if (selected.length < targetCount) {
+    selected.push(...evenlyPick(samples.filter((sample) => !selected.includes(sample)), targetCount - selected.length));
+  }
+
+  return selected.slice(0, targetCount);
+}
+
+function evenlyPick(samples: ObjectSample[], count: number): ObjectSample[] {
+  if (samples.length === 0 || count <= 0) {
+    return [];
+  }
+
+  if (samples.length <= count) {
+    return samples;
+  }
+
+  const picked: ObjectSample[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const sampleIndex = Math.round((index / Math.max(1, count - 1)) * (samples.length - 1));
+    picked.push(samples[sampleIndex]);
+  }
+  return picked;
+}
+
+function nearestSample(samples: ObjectSample[], point: Vec3): ObjectSample | null {
+  return samples
+    .map((sample) => ({ sample, distance: length(sub(sample.position, point)) }))
+    .sort((a, b) => a.distance - b.distance)[0]?.sample ?? null;
+}
+
 function sampleIndex(sample: ObjectSample): number {
   const parts = sample.id.split("-");
   return Number(parts[parts.length - 1]) || 0;
@@ -757,7 +1011,7 @@ function lensLearningRadius(config: SceneConfig): number {
   return Math.min(18, (minimumReconstruction + circleOfConfusion) * resolutionScale(config));
 }
 
-function idealImagePoint(config: SceneConfig, objectPoint: Vec3): Vec3 {
+export function computeIdealImagePoint(config: SceneConfig, objectPoint: Vec3): Vec3 {
   const doDistance = Math.max(0.1, config.lensPosition.x - objectPoint.x);
   const denominator = 1 / config.focalLength - 1 / doDistance;
   const di = denominator > 0.02 ? 1 / denominator : 14;
@@ -819,6 +1073,16 @@ function pointToSensorHit(config: SceneConfig, point: Vec3): SensorHit | null {
   };
 }
 
+function pointToDisplayedHit(config: SceneConfig, point: Vec3): PixelHit {
+  const u = (point.z - config.sensorPosition.z) / sensorGrid.width + 0.5;
+  const v = 0.5 - (point.y - config.sensorPosition.y) / sensorGrid.height;
+
+  return {
+    col: Math.min(Math.max(Math.round(u * config.resolution.columns - 0.5), 0), config.resolution.columns - 1),
+    row: Math.min(Math.max(Math.round(v * config.resolution.rows - 0.5), 0), config.resolution.rows - 1),
+  };
+}
+
 function intersectRayWithX(origin: Vec3, direction: Vec3, x: number): Vec3 | null {
   if (Math.abs(direction.x) < 0.0001) {
     return null;
@@ -862,7 +1126,7 @@ function splat(
 
       addColor(accum, resolution, col, row, color, intensity * weight);
       if (trackPixelRays && weight > 0.08) {
-        pushPixelRay(pixelToRays, { col, row }, { ...ray, hitPixel: { col, row } });
+        pushPixelRay(pixelToRays, { col, row }, { ...ray, displayedHitPixel: { col, row }, hitPixel: { col, row } });
       }
     }
   }
@@ -888,22 +1152,43 @@ function pushPixelRay(pixelToRays: Record<string, TracedRay[]>, pixel: PixelHit,
   pixelToRays[key] = bucket;
 }
 
-function makeRay(
-  id: string,
-  points: Vec3[],
-  sample: ObjectSample,
-  hitPixel: PixelHit,
-  intensity: number,
-  extra: Partial<Pick<TracedRay, "aperturePoint" | "idealImagePoint" | "sensorHitPoint">> = {},
-): TracedRay {
+function makeRay({
+  id,
+  points,
+  sample,
+  exactHitPixel,
+  displayedHitPixel,
+  sensorHitPoint,
+  intensity,
+  rayKind,
+  aperturePoint = null,
+  idealImagePoint = null,
+}: {
+  id: string;
+  points: Vec3[];
+  sample: ObjectSample;
+  exactHitPixel: PixelHit | null;
+  displayedHitPixel: PixelHit;
+  sensorHitPoint: Vec3;
+  intensity: number;
+  rayKind: RayKind;
+  aperturePoint?: Vec3 | null;
+  idealImagePoint?: Vec3 | null;
+}): TracedRay {
   return {
     id,
-    origin: points[0],
+    origin: sample.position,
+    sourcePosition: sample.position,
     points,
-    ...extra,
+    aperturePoint,
+    idealImagePoint,
+    sensorHitPoint,
+    exactHitPixel,
+    displayedHitPixel,
     color: rgbToCss(sample.color),
     intensity,
-    hitPixel,
+    hitPixel: displayedHitPixel,
+    rayKind,
     sourceSampleId: sample.id,
   };
 }

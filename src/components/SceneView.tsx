@@ -4,11 +4,13 @@ import { Eye, RadioTower, Route, Waves } from "lucide-react";
 import { Fragment, useEffect, useMemo } from "react";
 import * as THREE from "three";
 import {
+  computeIdealImagePoint,
+  computeOpticalInfo,
+  getRepresentativeRays,
   modeLabels,
   rayDisplayModeLabels,
   sensorGrid,
   type SceneConfig,
-  type RayDisplayMode,
   type SensorRenderResult,
   type TracedRay,
   type Vec3,
@@ -351,6 +353,80 @@ function AxisMarkers({ config }: { config: SceneConfig }) {
   );
 }
 
+function IdealOpticsOverlay({ config, sourceBundleRays }: { config: SceneConfig; sourceBundleRays: TracedRay[] }) {
+  if (config.mode !== "lens" && config.mode !== "out-of-focus") {
+    return null;
+  }
+
+  const opticalInfo = computeOpticalInfo(config);
+  if (opticalInfo.idealImageDistance === null) {
+    return null;
+  }
+
+  const idealImageX = config.lensPosition.x + opticalInfo.idealImageDistance;
+  const screenHeight = sensorGrid.height;
+  const markerPoint =
+    sourceBundleRays.find((ray) => ray.idealImagePoint)?.idealImagePoint ??
+    computeIdealImagePoint(config, { x: config.objectPosition.x, y: config.objectPosition.y, z: config.objectPosition.z });
+  const focusError = opticalInfo.focusError ?? 0;
+  const focusLineY = screenHeight * 0.75;
+  const focusLineZ = -sensorGrid.width * 0.62;
+
+  return (
+    <group>
+      <group position={[idealImageX, 0, 0]}>
+        <mesh rotation={[0, -Math.PI / 2, 0]}>
+          <planeGeometry args={[sensorGrid.width, screenHeight]} />
+          <meshBasicMaterial color="#fff4c2" transparent opacity={0.14} side={THREE.DoubleSide} depthWrite={false} />
+        </mesh>
+        <mesh rotation={[0, -Math.PI / 2, 0]}>
+          <boxGeometry args={[sensorGrid.width + 0.08, screenHeight + 0.08, 0.024]} />
+          <meshBasicMaterial color="#fff4c2" wireframe transparent opacity={0.55} />
+        </mesh>
+        <Text
+          position={[-0.035, screenHeight * 0.58, 0]}
+          rotation={[0, -Math.PI / 2, 0]}
+          fontSize={0.12}
+          color="#fff2ad"
+          anchorX="center"
+          anchorY="middle"
+        >
+          理想像面
+        </Text>
+      </group>
+      <mesh position={toTuple(markerPoint)}>
+        <sphereGeometry args={[0.052, 24, 24]} />
+        <meshStandardMaterial color="#fff7d6" emissive="#ffe27a" emissiveIntensity={1.4} />
+      </mesh>
+      <Text
+        position={[markerPoint.x, markerPoint.y + 0.16, markerPoint.z]}
+        fontSize={0.095}
+        color="#fff7d6"
+        anchorX="center"
+        anchorY="middle"
+      >
+        idealImagePoint
+      </Text>
+      <Line
+        points={[[idealImageX, focusLineY, focusLineZ], [config.sensorPosition.x, focusLineY, focusLineZ]]}
+        color={Math.abs(focusError) < 0.08 ? "#dfffe5" : "#ffe27a"}
+        lineWidth={2}
+        transparent
+        opacity={0.8}
+      />
+      <Text
+        position={[(idealImageX + config.sensorPosition.x) / 2, focusLineY + 0.13, focusLineZ]}
+        fontSize={0.105}
+        color="#fff0a8"
+        anchorX="center"
+        anchorY="middle"
+      >
+        {`ピント誤差 ${focusError.toFixed(2)} / di ${opticalInfo.idealImageDistance.toFixed(2)} / f ${opticalInfo.focalLength.toFixed(2)}`}
+      </Text>
+    </group>
+  );
+}
+
 function CameraWireframe({ config }: { config: SceneConfig }) {
   const centerX = (config.lensPosition.x + config.sensorPosition.x) / 2;
   const width = Math.max(1.2, Math.abs(config.sensorPosition.x - config.lensPosition.x) + 0.9);
@@ -369,47 +445,8 @@ function CameraWireframe({ config }: { config: SceneConfig }) {
   );
 }
 
-function pickRepresentativeRays(result: SensorRenderResult, mode: SceneConfig["mode"]): TracedRay[] {
-  if (mode === "no-lens") {
-    const unique = new Map<string, TracedRay>();
-    for (const ray of result.rays) {
-      if (!unique.has(ray.sourceSampleId)) {
-        unique.set(ray.sourceSampleId, ray);
-      }
-      if (unique.size >= 6) {
-        break;
-      }
-    }
-    return [...unique.values()];
-  }
-
-  const grouped = new Map<string, TracedRay[]>();
-  for (const ray of result.rays) {
-    const bucket = grouped.get(ray.sourceSampleId) ?? [];
-    bucket.push(ray);
-    grouped.set(ray.sourceSampleId, bucket);
-  }
-
-  const bestGroup = [...grouped.values()].sort((a, b) => b.length - a.length)[0] ?? [];
-  if (bestGroup.length <= 7) {
-    return bestGroup;
-  }
-
-  const centerRay = bestGroup.find((ray) => ray.aperturePoint && Math.hypot(ray.aperturePoint.y, ray.aperturePoint.z) < 0.04) ?? bestGroup[0];
-  const edgeRays = bestGroup
-    .filter((ray) => ray !== centerRay)
-    .sort((a, b) => {
-      const ar = a.aperturePoint ? Math.hypot(a.aperturePoint.y, a.aperturePoint.z) : 0;
-      const br = b.aperturePoint ? Math.hypot(b.aperturePoint.y, b.aperturePoint.z) : 0;
-      return br - ar;
-    })
-    .slice(0, 6);
-
-  return [centerRay, ...edgeRays];
-}
-
 function limitSelectedRays(rays: TracedRay[]): TracedRay[] {
-  return rays.slice(0, 12);
+  return rays.slice(0, 32);
 }
 
 function averagePoint(points: Vec3[]): Vec3 {
@@ -486,9 +523,22 @@ function FluxVolumes({ config, rays }: { config: SceneConfig; rays: TracedRay[] 
 }
 
 function SceneContent() {
-  const { sceneConfig, sensorResult, selectedPixel, selectedRays, showRays, showWavefronts, rayDisplayMode } = useLessonStore();
-  const representativeRays = useMemo(() => pickRepresentativeRays(sensorResult, sceneConfig.mode), [sceneConfig.mode, sensorResult]);
-  const visibleSelectedRays = useMemo(() => limitSelectedRays(selectedRays), [selectedRays]);
+  const {
+    sceneConfig,
+    sensorResult,
+    selectedPixel,
+    selectedContributorRays,
+    selectedSourceBundleRays,
+    showRays,
+    showWavefronts,
+    rayDisplayMode,
+  } = useLessonStore();
+  const representativeRays = useMemo(
+    () => getRepresentativeRays(sceneConfig, sensorResult.samples),
+    [sceneConfig, sensorResult.samples],
+  );
+  const visibleContributorRays = useMemo(() => limitSelectedRays(selectedContributorRays), [selectedContributorRays]);
+  const visibleSourceBundleRays = useMemo(() => limitSelectedRays(selectedSourceBundleRays), [selectedSourceBundleRays]);
   const debugRays = useMemo(() => sensorResult.rays.slice(0, 180), [sensorResult]);
 
   return (
@@ -510,22 +560,38 @@ function SceneContent() {
       <SensorPlane config={sceneConfig} sensorResult={sensorResult} selectedPixel={selectedPixel} />
       <CameraWireframe config={sceneConfig} />
       <AxisMarkers config={sceneConfig} />
+      <IdealOpticsOverlay config={sceneConfig} sourceBundleRays={visibleSourceBundleRays} />
       {showRays && rayDisplayMode === "representative" ? (
         <RayLines rays={representativeRays} color="#f2a23a" opacity={0.72} lineWidth={2.2} />
       ) : null}
-      {showRays && rayDisplayMode === "selected" ? (
+      {showRays && rayDisplayMode === "contributors" ? (
         <>
-          <RayLines rays={visibleSelectedRays} selected color="#ffe36e" opacity={0.94} lineWidth={4} />
-          {visibleSelectedRays.length === 0 ? <RayLines rays={representativeRays.slice(0, 3)} color="#6f7780" opacity={0.16} lineWidth={1.2} /> : null}
+          <RayLines
+            rays={visibleContributorRays}
+            selected
+            color={sceneConfig.mode === "no-lens" ? "#e8683a" : "#ffe36e"}
+            opacity={sceneConfig.mode === "no-lens" ? 0.46 : 0.94}
+            lineWidth={sceneConfig.mode === "no-lens" ? 2.1 : 4}
+          />
+          {visibleContributorRays.length === 0 ? <RayLines rays={representativeRays.slice(0, 3)} color="#6f7780" opacity={0.16} lineWidth={1.2} /> : null}
         </>
       ) : null}
-      {showRays && rayDisplayMode === "flux" ? (
-        <FluxVolumes config={sceneConfig} rays={visibleSelectedRays.length ? visibleSelectedRays : representativeRays} />
+      {showRays && rayDisplayMode === "source-bundle" ? (
+        <>
+          <RayLines
+            rays={visibleSourceBundleRays.length ? visibleSourceBundleRays : representativeRays}
+            selected
+            color="#fff0a8"
+            opacity={0.92}
+            lineWidth={3.2}
+          />
+          <FluxVolumes config={sceneConfig} rays={visibleSourceBundleRays.length ? visibleSourceBundleRays : representativeRays} />
+        </>
       ) : null}
       {showRays && rayDisplayMode === "debug" ? (
         <>
           <RayLines rays={debugRays} color={sceneConfig.mode === "no-lens" ? "#d75b3c" : "#6f7780"} opacity={sceneConfig.mode === "no-lens" ? 0.12 : 0.18} lineWidth={1} />
-          <RayLines rays={visibleSelectedRays} selected color="#ffe36e" opacity={0.96} lineWidth={4} />
+          <RayLines rays={visibleContributorRays} selected color="#ffe36e" opacity={0.96} lineWidth={4} />
         </>
       ) : null}
       <OrbitControls makeDefault enableDamping dampingFactor={0.08} minDistance={3.5} maxDistance={9} />
@@ -534,7 +600,18 @@ function SceneContent() {
 }
 
 export function SceneView() {
-  const { mode, selectedPixel, selectedRays, showRays, showWavefronts, rayDisplayMode, toggleRays, toggleWavefronts } = useLessonStore();
+  const {
+    mode,
+    selectedPixel,
+    selectedContributorRays,
+    selectedSourceBundleRays,
+    showRays,
+    showWavefronts,
+    rayDisplayMode,
+    toggleRays,
+    toggleWavefronts,
+  } = useLessonStore();
+  const activeRayCount = rayDisplayMode === "source-bundle" ? selectedSourceBundleRays.length : selectedContributorRays.length;
 
   return (
     <div className="scene-shell">
@@ -566,7 +643,7 @@ export function SceneView() {
           {selectedPixel ? (
             <>
               <RadioTower size={15} aria-hidden="true" />
-              {rayDisplayModeLabels[rayDisplayMode]} / 寄与光線 {selectedRays.length} 本
+              {rayDisplayModeLabels[rayDisplayMode]} / 表示光線 {activeRayCount} 本
             </>
           ) : (
             <>

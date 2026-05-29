@@ -4,7 +4,9 @@ import {
   createSceneConfig,
   defaultSensorXForMode,
   defaultSimulationParams,
-  getRaysForPixel,
+  getDominantSourceSample,
+  getPixelContributorRays,
+  getSourceBundleRays,
   renderSensorImage,
   selectedPixelFromGrid,
   simulationPresets,
@@ -33,6 +35,9 @@ type LessonState = {
   sensorResult: SensorRenderResult;
   selectedPixel: SelectedPixel | null;
   selectedRays: TracedRay[];
+  selectedContributorRays: TracedRay[];
+  selectedSourceBundleRays: TracedRay[];
+  dominantSourceSampleId: string | null;
   showRays: boolean;
   showWavefronts: boolean;
   nextStep: () => void;
@@ -60,6 +65,19 @@ const initialRayDisplayMode: RayDisplayMode = "representative";
 const initialConfig = createSceneConfig(initialMode, defaultSimulationParams, initialSensorQuality, initialSensorDisplayMode);
 const initialResult = renderSensorImage(initialConfig);
 
+function derivePixelAnalysis(sensorResult: SensorRenderResult, selectedPixel: SelectedPixel | null) {
+  const selectedContributorRays = getPixelContributorRays(sensorResult, selectedPixel);
+  const dominantSourceSample = getDominantSourceSample(sensorResult, selectedPixel);
+  const selectedSourceBundleRays = getSourceBundleRays(sensorResult.config, dominantSourceSample);
+
+  return {
+    selectedRays: selectedContributorRays,
+    selectedContributorRays,
+    selectedSourceBundleRays,
+    dominantSourceSampleId: dominantSourceSample?.id ?? null,
+  };
+}
+
 function normalizeSelectedPixel(pixel: SelectedPixel | null, result: SensorRenderResult): SelectedPixel | null {
   if (!pixel) {
     return null;
@@ -82,7 +100,7 @@ function makeComputedState(
   const sceneConfig = createSceneConfig(mode, params, sensorQuality, sensorDisplayMode);
   const sensorResult = renderSensorImage(sceneConfig);
   const normalizedPixel = normalizeSelectedPixel(selectedPixel, sensorResult);
-  const selectedRays = getRaysForPixel(sensorResult, normalizedPixel);
+  const pixelAnalysis = derivePixelAnalysis(sensorResult, normalizedPixel);
 
   return {
     mode,
@@ -92,7 +110,7 @@ function makeComputedState(
     sceneConfig,
     sensorResult,
     selectedPixel: normalizedPixel,
-    selectedRays,
+    ...pixelAnalysis,
   };
 }
 
@@ -119,6 +137,9 @@ export const useLessonStore = create<LessonState>((set) => ({
   sensorResult: initialResult,
   selectedPixel: null,
   selectedRays: [],
+  selectedContributorRays: [],
+  selectedSourceBundleRays: [],
+  dominantSourceSampleId: null,
   showRays: true,
   showWavefronts: true,
   nextStep: () =>
@@ -173,12 +194,15 @@ export const useLessonStore = create<LessonState>((set) => ({
       return makeComputedState(preset.mode, params, state.selectedPixel, state.sensorQuality, state.sensorDisplayMode);
     }),
   selectPixel: (pixel) =>
-    set((state) => ({
-      selectedPixel: pixel,
-      selectedRays: getRaysForPixel(state.sensorResult, pixel),
-      rayDisplayMode: "selected",
-      showRays: true,
-    })),
+    set((state) => {
+      const pixelAnalysis = derivePixelAnalysis(state.sensorResult, pixel);
+      return {
+        selectedPixel: pixel,
+        ...pixelAnalysis,
+        rayDisplayMode: state.mode === "no-lens" ? "contributors" : "source-bundle",
+        showRays: true,
+      };
+    }),
   selectCenterPixel: () =>
     set((state) => {
       const pixel = selectedPixelFromGrid(
@@ -186,14 +210,16 @@ export const useLessonStore = create<LessonState>((set) => ({
         Math.floor(state.sensorResult.height / 2),
         { columns: state.sensorResult.width, rows: state.sensorResult.height },
       );
+      const pixelAnalysis = derivePixelAnalysis(state.sensorResult, pixel);
       return {
         selectedPixel: pixel,
-        selectedRays: getRaysForPixel(state.sensorResult, pixel),
-        rayDisplayMode: "selected",
+        ...pixelAnalysis,
+        rayDisplayMode: state.mode === "no-lens" ? "contributors" : "source-bundle",
         showRays: true,
       };
     }),
-  clearSelectedPixel: () => set({ selectedPixel: null, selectedRays: [] }),
+  clearSelectedPixel: () =>
+    set({ selectedPixel: null, selectedRays: [], selectedContributorRays: [], selectedSourceBundleRays: [], dominantSourceSampleId: null }),
   toggleRays: () => set((state) => ({ showRays: !state.showRays })),
   toggleWavefronts: () => set((state) => ({ showWavefronts: !state.showWavefronts })),
   toggleLight: () =>

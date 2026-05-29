@@ -136,7 +136,9 @@ export function SensorPanel() {
     sceneConfig,
     sensorResult,
     selectedPixel,
-    selectedRays,
+    selectedContributorRays,
+    selectedSourceBundleRays,
+    dominantSourceSampleId,
     selectPixel,
     clearSelectedPixel,
     setSensorDisplayMode,
@@ -297,15 +299,19 @@ export function SensorPanel() {
             <Crosshair size={16} aria-hidden="true" />
             <strong>選択ピクセル</strong>
           </div>
-          <p>{pixelInfoText(mode, selectedPixel, selectedRays)}</p>
+          <p>{pixelInfoText(mode, selectedPixel, selectedContributorRays, selectedSourceBundleRays)}</p>
           <dl>
             <div>
               <dt>座標</dt>
               <dd>{selectedPixel ? `列${selectedPixel.col + 1}・行${selectedPixel.row + 1}` : "未選択"}</dd>
             </div>
             <div>
-              <dt>寄与光線</dt>
-              <dd>{selectedPixel ? `${selectedRays.length} 本` : "未選択"}</dd>
+              <dt>届いた光</dt>
+              <dd>{selectedPixel ? `${selectedContributorRays.length} 本` : "未選択"}</dd>
+            </div>
+            <div>
+              <dt>物体点光束</dt>
+              <dd>{selectedPixel ? `${selectedSourceBundleRays.length} 本` : "未選択"}</dd>
             </div>
             <div>
               <dt>状態</dt>
@@ -333,6 +339,70 @@ export function SensorPanel() {
             </button>
           </div>
         </div>
+
+        <section className="debug-panel inspector-card" aria-label="光学デバッグ">
+          <div className="info-row">
+            <strong>光学デバッグ</strong>
+          </div>
+          <dl className="debug-metrics">
+            <div>
+              <dt>mode</dt>
+              <dd>{mode}</dd>
+            </div>
+            <div>
+              <dt>objectX</dt>
+              <dd>{formatMetric(params.objectX)}</dd>
+            </div>
+            <div>
+              <dt>lensX</dt>
+              <dd>{formatMetric(params.lensX)}</dd>
+            </div>
+            <div>
+              <dt>sensorX</dt>
+              <dd>{formatMetric(params.sensorX)}</dd>
+            </div>
+            <div>
+              <dt>focalLength</dt>
+              <dd>{formatMetric(params.focalLength)}</dd>
+            </div>
+            <div>
+              <dt>do</dt>
+              <dd>{formatMetric(opticalInfo.objectDistance)}</dd>
+            </div>
+            <div>
+              <dt>di</dt>
+              <dd>{formatMetric(opticalInfo.idealImageDistance)}</dd>
+            </div>
+            <div>
+              <dt>idealImageX</dt>
+              <dd>{formatMetric(sensorResult.idealImageX)}</dd>
+            </div>
+            <div>
+              <dt>focusError</dt>
+              <dd>{formatMetric(opticalInfo.focusError)}</dd>
+            </div>
+            <div>
+              <dt>apertureRadius</dt>
+              <dd>{formatMetric(params.apertureRadius)}</dd>
+            </div>
+            <div>
+              <dt>selectedPixel</dt>
+              <dd>{selectedPixel ? `${selectedPixel.col},${selectedPixel.row}` : "--"}</dd>
+            </div>
+            <div>
+              <dt>contributor rays</dt>
+              <dd>{selectedContributorRays.length}</dd>
+            </div>
+            <div>
+              <dt>dominantSourceSampleId</dt>
+              <dd>{dominantSourceSampleId ?? "--"}</dd>
+            </div>
+            <div>
+              <dt>source bundle rays</dt>
+              <dd>{selectedSourceBundleRays.length}</dd>
+            </div>
+          </dl>
+        </section>
 
         <section className="experiment-panel parameter-panel inspector-card" aria-label="実験パラメータ">
           <div className="info-row experiment-heading">

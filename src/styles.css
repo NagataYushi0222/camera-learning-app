@@ -364,7 +364,7 @@ button:disabled {
 }
 
 .display-row:nth-of-type(3) .segmented-control.compact {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .segment-button {
@@ -446,7 +446,7 @@ button:disabled {
   border-bottom: 1px solid #edf0f2;
   display: grid;
   gap: 0.7rem;
-  grid-template-columns: 4.5rem minmax(0, 1fr);
+  grid-template-columns: 5.6rem minmax(0, 1fr);
   padding-bottom: 0.45rem;
 }
 
@@ -462,6 +462,11 @@ button:disabled {
 }
 
 .optical-info-panel {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.debug-panel {
   display: grid;
   gap: 0.65rem;
 }
@@ -494,6 +499,36 @@ button:disabled {
   font-variant-numeric: tabular-nums;
   font-weight: 800;
   margin: 0;
+}
+
+.debug-metrics {
+  display: grid;
+  gap: 0.38rem;
+  margin: 0;
+}
+
+.debug-metrics div {
+  align-items: baseline;
+  border-bottom: 1px solid #e8edf1;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(7.8rem, auto) minmax(0, 1fr);
+  padding-bottom: 0.34rem;
+}
+
+.debug-metrics dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.debug-metrics dd {
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .sensor-actions {
