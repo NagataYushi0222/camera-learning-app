@@ -18,6 +18,8 @@ import {
   type SimulationParams,
 } from "../simulation/opticsModel";
 import { useLessonStore } from "../state/useLessonStore";
+import { useScenarioStore } from "../state/useScenarioStore";
+import { getStep } from "../content/chapters";
 import type { SelectedPixel } from "../types";
 
 function pixelFromPointer(event: MouseEvent<HTMLDivElement>, width: number, height: number): SelectedPixel {
@@ -150,6 +152,13 @@ export function SensorPanel() {
     applySimulationPreset,
     toggleLight,
   } = useLessonStore();
+  const { learningMode, currentChapterId, currentStepId } = useScenarioStore();
+  const scenarioStep = getStep(currentChapterId, currentStepId);
+  const needsParameterPanel =
+    learningMode === "explore" ||
+    scenarioStep.requiredAction?.type === "focusAdjust" ||
+    scenarioStep.requiredAction?.type === "changeAperture" ||
+    scenarioStep.requiredAction?.type === "changeFocalLength";
   const opticalInfo = computeOpticalInfo(sceneConfig);
 
   useEffect(() => {
@@ -340,7 +349,7 @@ export function SensorPanel() {
           </div>
         </div>
 
-        <section className="debug-panel inspector-card" aria-label="光学デバッグ">
+        {learningMode === "explore" ? <section className="debug-panel inspector-card" aria-label="光学デバッグ">
           <div className="info-row">
             <strong>光学デバッグ</strong>
           </div>
@@ -402,9 +411,9 @@ export function SensorPanel() {
               <dd>{selectedSourceBundleRays.length}</dd>
             </div>
           </dl>
-        </section>
+        </section> : null}
 
-        <section className="experiment-panel parameter-panel inspector-card" aria-label="実験パラメータ">
+        {needsParameterPanel ? <section className="experiment-panel parameter-panel inspector-card" aria-label="実験パラメータ">
           <div className="info-row experiment-heading">
             <strong>実験パラメータ</strong>
             <button
@@ -459,7 +468,12 @@ export function SensorPanel() {
               </button>
             </div>
           </ParameterGroup>
-        </section>
+        </section> : (
+          <div className="guided-compact-note inspector-card">
+            <strong>Guided Mode</strong>
+            <span>必要な操作だけを表示しています。全パラメータは「自由に試す」で開けます。</span>
+          </div>
+        )}
       </div>
     </div>
   );

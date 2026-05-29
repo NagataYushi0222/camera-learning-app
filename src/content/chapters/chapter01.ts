@@ -1,0 +1,180 @@
+import type { Chapter } from "../lessonTypes";
+
+export const chapter01: Chapter = {
+  id: "chapter-01",
+  order: 1,
+  title: "このアプリの見方",
+  description: "左で仕組みを見て、右で結果を見て、1ピクセルから光の原因をたどる基本操作。",
+  sourceNote: "docs/content/02_CORE_EXPLANATION.md 第1章",
+  steps: [
+    {
+      id: "c01-intro",
+      type: "narration",
+      title: "まずは見える仕組みを3Dで見る",
+      speaker: "ガイド",
+      text: [
+        "このアプリでは、カメラや目がどうやって像を作るのかを、3Dで見ながら学びます。",
+        "教科書の光線図だけではなく、光が広がり、物体で反射し、レンズやスクリーンへ届く流れをそのまま追いかけます。",
+      ],
+      scenePreset: {
+        mode: "lens",
+        cameraShot: "overview",
+        lightEnabled: true,
+        showRays: false,
+        showWavefronts: true,
+        sensorDisplayMode: "learning",
+      },
+      glossaryTerms: ["光源", "物体", "レンズ", "スクリーン"],
+    },
+    {
+      id: "c01-two-views",
+      type: "cinematic",
+      title: "左で仕組み、右で結果を見る",
+      speaker: "ガイド",
+      text: [
+        "左側は、光源・物体・レンズ・スクリーンの位置関係を見る3Dビューです。",
+        "右側は、そのスクリーンに実際に写っている結果です。",
+      ],
+      scenePreset: {
+        mode: "lens",
+        cameraShot: "sideAligned",
+        showRays: false,
+        showWavefronts: true,
+      },
+      actions: [
+        { type: "highlightUI", target: "sceneView" },
+        { type: "highlightUI", target: "sensorPanel" },
+      ],
+      focusMessage: "左が原因、右が結果です。",
+    },
+    {
+      id: "c01-click-task",
+      type: "task",
+      title: "スクリーンの1点を調べる",
+      speaker: "ガイド",
+      text: [
+        "右側のスクリーン上の1点をクリックしてみましょう。",
+        "そのピクセルに届いた光の通り道が、左側の3Dビューに表示されます。",
+      ],
+      scenePreset: {
+        mode: "lens",
+        cameraShot: "sensorCloseup",
+        rayDisplayMode: "source-bundle",
+        showRays: true,
+      },
+      requiredAction: { type: "selectPixel" },
+      successText: "いいですね。スクリーン上の1点から、光の通り道を逆向きにたどることができます。",
+      focusMessage: "右側のセンサー画像をクリックしてください。",
+    },
+    {
+      id: "c01-light-source",
+      type: "cinematic",
+      title: "物が見えるには光が必要",
+      speaker: "ガイド",
+      text: [
+        "物が見えるには、まず光が必要です。",
+        "左側の光源から出た光がりんごに当たり、その反射した光がスクリーンへ届きます。",
+      ],
+      scenePreset: {
+        mode: "lens",
+        cameraShot: "objectAndLight",
+        lightEnabled: true,
+        showWavefronts: true,
+        showRays: true,
+        rayDisplayMode: "representative",
+      },
+      glossaryTerms: ["光源", "反射光"],
+    },
+    {
+      id: "c01-turn-off-choice",
+      type: "choice",
+      title: "ライトを消すとどうなる？",
+      speaker: "ガイド",
+      text: ["実験してみましょう。光源を消すと、右側のスクリーンはどうなるでしょうか。"],
+      choices: [
+        {
+          id: "turn-light-off",
+          label: "ライトを消す",
+          feedback: "光源が消えると、センサー画像も3D内スクリーンも暗くなります。",
+          actions: [
+            { type: "fadeLight", enabled: false, durationMs: 400 },
+            { type: "setRaysVisible", visible: false },
+          ],
+        },
+      ],
+      scenePreset: {
+        mode: "lens",
+        cameraShot: "objectAndLight",
+        lightEnabled: true,
+        showRays: true,
+      },
+    },
+    {
+      id: "c01-after-dark",
+      type: "narration",
+      title: "物体だけでは写らない",
+      speaker: "ガイド",
+      text: [
+        "りんごはそこにあります。",
+        "でも、光が届かなければ、スクリーンにはほとんど何も写りません。",
+      ],
+      scenePreset: {
+        mode: "lens",
+        lightEnabled: false,
+        cameraShot: "sideAligned",
+        showRays: false,
+        showWavefronts: false,
+      },
+    },
+    {
+      id: "c01-turn-on-choice",
+      type: "choice",
+      title: "もう一度ライトをつける",
+      speaker: "ガイド",
+      text: ["ライトを戻すと、光の経路とセンサー像も戻ります。"],
+      choices: [
+        {
+          id: "turn-light-on",
+          label: "ライトをつける",
+          feedback: "光が戻ると、りんごの像がスクリーンへ戻ります。",
+          actions: [
+            { type: "fadeLight", enabled: true, durationMs: 400 },
+            { type: "setRaysVisible", visible: true },
+            { type: "setWavefrontsVisible", visible: true },
+          ],
+        },
+      ],
+      scenePreset: {
+        mode: "lens",
+        lightEnabled: false,
+        cameraShot: "overview",
+      },
+    },
+    {
+      id: "c01-quiz",
+      type: "quiz",
+      title: "理解チェック",
+      speaker: "ガイド",
+      text: ["このアプリの一番大事な使い方はどれでしょう？"],
+      choices: [
+        { id: "a", label: "左だけを見て光線の形を覚える", isCorrect: false, feedback: "左だけでなく、右の結果と結びつけることが大切です。" },
+        { id: "b", label: "右で結果を見て、クリックして左で原因を調べる", isCorrect: true, feedback: "正解です。1ピクセルから光の出どころをたどるのがこのアプリの核です。" },
+        { id: "c", label: "スライダーを全部最大にする", isCorrect: false, feedback: "実験は大事ですが、まずは結果と原因の対応を見ることから始めます。" },
+      ],
+    },
+    {
+      id: "c01-summary",
+      type: "summary",
+      title: "第1章まとめ",
+      speaker: "ガイド",
+      text: ["この章では、アプリの基本の見方を確認しました。"],
+      summaryItems: [
+        "左側は光源・物体・レンズ・スクリーンの位置関係を見る場所",
+        "右側はスクリーンに実際に写っている結果を見る場所",
+        "右側の1ピクセルをクリックすると、その光の出どころを左側で調べられる",
+      ],
+      glossaryTerms: ["3Dビュー", "センサー1ピクセル解析", "スクリーン"],
+      nextChapterPreview: "次は、暗闇で物が見えない理由を調べます。",
+    },
+  ],
+};

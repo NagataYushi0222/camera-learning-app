@@ -1,0 +1,60 @@
+import type { Chapter } from "../lessonTypes";
+
+export const chapter03: Chapter = {
+  id: "chapter-03",
+  order: 3,
+  title: "物体の1点から光は広がる",
+  description: "物体上の1点から反射した光が、1本ではなく多方向へ広がることを学ぶ。",
+  sourceNote: "docs/content/02_CORE_EXPLANATION.md 第3章",
+  steps: [
+    {
+      id: "c03-point",
+      type: "cinematic",
+      title: "りんご表面の1点を見る",
+      speaker: "ガイド",
+      text: ["りんご表面の1点に注目します。そこから出る光は、スクリーンへ向かう1本だけではありません。"],
+      scenePreset: { mode: "no-lens", cameraShot: "objectPointCloseup", lightEnabled: true, showWavefronts: true, showRays: false },
+      glossaryTerms: ["物体点", "反射光"],
+    },
+    {
+      id: "c03-wave",
+      type: "cinematic",
+      title: "光は波として広がる",
+      speaker: "ガイド",
+      text: ["このアプリでは、光は波として広がるものとして説明します。光線は、その進む方向を示す補助線です。"],
+      scenePreset: { mode: "no-lens", cameraShot: "objectPointCloseup", showWavefronts: true, showRays: true, rayDisplayMode: "representative" },
+      glossaryTerms: ["波面", "光線"],
+    },
+    {
+      id: "c03-click",
+      type: "task",
+      title: "スクリーンの1点に届く光を見る",
+      speaker: "ガイド",
+      text: ["右側のスクリーンをクリックして、1ピクセルにどの方向から光が来るか見てみましょう。"],
+      requiredAction: { type: "selectPixel" },
+      successText: "1点のピクセルにも、物体のいろいろな場所からの光が関係していることが分かります。",
+      scenePreset: { mode: "no-lens", cameraShot: "sideAligned", showRays: true, rayDisplayMode: "contributors" },
+    },
+    {
+      id: "c03-quiz",
+      type: "quiz",
+      title: "理解チェック",
+      speaker: "ガイド",
+      text: ["光線とは、このアプリでは何を表す補助表示でしょう？"],
+      choices: [
+        { id: "a", label: "実際に細い線が1本だけ飛ぶこと", isCorrect: false, feedback: "光線は説明用の補助表示です。" },
+        { id: "b", label: "波が進む方向", isCorrect: true, feedback: "正解です。光線は波の進行方向を示すために使います。" },
+        { id: "c", label: "スクリーンの模様", isCorrect: false, feedback: "スクリーンではなく、光の進む方向です。" },
+      ],
+    },
+    {
+      id: "c03-summary",
+      type: "summary",
+      title: "第3章まとめ",
+      speaker: "ガイド",
+      text: ["物体の1点から出る光は、多方向へ広がることを確認しました。"],
+      summaryItems: ["光は波として広がる", "光線は波の進む方向を示す補助線", "1本の線だけを想像すると像の仕組みを誤解しやすい"],
+      nextChapterPreview: "次は、スクリーンだけではなぜ像にならないかを調べます。",
+    },
+  ],
+};

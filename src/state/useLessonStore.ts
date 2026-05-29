@@ -46,8 +46,12 @@ type LessonState = {
   setSensorDisplayMode: (mode: SensorDisplayMode) => void;
   setSensorQuality: (quality: SensorQuality) => void;
   setRayDisplayMode: (mode: RayDisplayMode) => void;
+  setRaysVisible: (visible: boolean) => void;
+  setWavefrontsVisible: (visible: boolean) => void;
   toggleSensorGrid: () => void;
   updateSimulationParam: (key: SimulationParamKey, value: number | boolean) => void;
+  updateSimulationParams: (params: Partial<SimulationParams>) => void;
+  setLightEnabled: (enabled: boolean) => void;
   resetSimulationParams: () => void;
   applySimulationPreset: (presetId: SimulationPresetId) => void;
   selectPixel: (pixel: SelectedPixel) => void;
@@ -169,6 +173,8 @@ export const useLessonStore = create<LessonState>((set) => ({
   setSensorQuality: (sensorQuality) =>
     set((state) => makeComputedState(state.mode, state.params, state.selectedPixel, sensorQuality, state.sensorDisplayMode)),
   setRayDisplayMode: (rayDisplayMode) => set({ rayDisplayMode }),
+  setRaysVisible: (showRays) => set({ showRays }),
+  setWavefrontsVisible: (showWavefronts) => set({ showWavefronts }),
   toggleSensorGrid: () => set((state) => ({ showSensorGrid: !state.showSensorGrid })),
   updateSimulationParam: (key, value) =>
     set((state) => {
@@ -179,6 +185,25 @@ export const useLessonStore = create<LessonState>((set) => ({
       const params = {
         ...state.params,
         [key]: value,
+      };
+      return makeComputedState(state.mode, params, state.selectedPixel, state.sensorQuality, state.sensorDisplayMode);
+    }),
+  updateSimulationParams: (partialParams) =>
+    set((state) => {
+      const params = {
+        ...state.params,
+        ...partialParams,
+      };
+      return makeComputedState(state.mode, params, state.selectedPixel, state.sensorQuality, state.sensorDisplayMode);
+    }),
+  setLightEnabled: (enabled) =>
+    set((state) => {
+      if (state.params.lightEnabled === enabled) {
+        return {};
+      }
+      const params = {
+        ...state.params,
+        lightEnabled: enabled,
       };
       return makeComputedState(state.mode, params, state.selectedPixel, state.sensorQuality, state.sensorDisplayMode);
     }),

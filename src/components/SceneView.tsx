@@ -1,4 +1,4 @@
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Grid, Line, OrbitControls, Text } from "@react-three/drei";
 import { Eye, RadioTower, Route, Waves } from "lucide-react";
 import { Fragment, useEffect, useMemo } from "react";
@@ -16,9 +16,39 @@ import {
   type Vec3,
 } from "../simulation/opticsModel";
 import { useLessonStore } from "../state/useLessonStore";
+import { useScenarioStore } from "../state/useScenarioStore";
+import { cameraShots } from "../features/cinematic/cameraShots";
 
 function toTuple(point: Vec3): [number, number, number] {
   return [point.x, point.y, point.z];
+}
+
+function SceneCameraDirector() {
+  const cameraShot = useScenarioStore((state) => state.cameraShot);
+  const learningMode = useScenarioStore((state) => state.learningMode);
+  const { camera, controls } = useThree();
+
+  useFrame(() => {
+    if (learningMode === "explore") {
+      return;
+    }
+
+    const shot = cameraShots[cameraShot];
+    const targetPosition = new THREE.Vector3(...shot.position);
+    camera.position.lerp(targetPosition, 0.035);
+    if ("fov" in camera) {
+      camera.fov += (shot.fov - camera.fov) * 0.035;
+      camera.updateProjectionMatrix();
+    }
+
+    const orbitControls = controls as { target?: THREE.Vector3; update?: () => void } | undefined;
+    if (orbitControls?.target) {
+      orbitControls.target.lerp(new THREE.Vector3(...shot.target), 0.045);
+      orbitControls.update?.();
+    }
+  });
+
+  return null;
 }
 
 function RayLines({
@@ -544,6 +574,7 @@ function SceneContent() {
   return (
     <Fragment>
       <color attach="background" args={["#111214"]} />
+      <SceneCameraDirector />
       <ambientLight intensity={0.32} />
       <directionalLight position={[4, 5, 3]} intensity={0.72} castShadow />
       <Grid

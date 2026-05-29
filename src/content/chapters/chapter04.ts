@@ -1,0 +1,60 @@
+import type { Chapter } from "../lessonTypes";
+
+export const chapter04: Chapter = {
+  id: "chapter-04",
+  order: 4,
+  title: "スクリーンだけでは像にならない",
+  description: "レンズもピンホールもないと、1ピクセルに光が混ざり、形が失われることを学ぶ。",
+  sourceNote: "docs/content/02_CORE_EXPLANATION.md 第4章",
+  steps: [
+    {
+      id: "c04-no-lens",
+      type: "cinematic",
+      title: "レンズを外す",
+      speaker: "ガイド",
+      text: ["りんごの前にスクリーンだけを置きます。レンズもピンホールもありません。"],
+      scenePreset: { mode: "no-lens", cameraShot: "sideAligned", lightEnabled: true, showRays: false, showWavefronts: true },
+    },
+    {
+      id: "c04-mixed",
+      type: "narration",
+      title: "光は届いている。でも形にならない",
+      speaker: "ガイド",
+      text: ["右側のスクリーンには光が届いています。でも、りんごの形ははっきり表示されません。"],
+      scenePreset: { mode: "no-lens", sensorDisplayMode: "learning", showRays: false },
+    },
+    {
+      id: "c04-click",
+      type: "task",
+      title: "混ざっている光を調べる",
+      speaker: "ガイド",
+      text: ["右側のスクリーン上の1点をクリックしてみましょう。その1ピクセルに物体全体から光が混ざっていることが分かります。"],
+      requiredAction: { type: "selectPixel" },
+      successText: "この1ピクセルには、上下左右・葉・茎を含むいろいろな場所からの光が届いています。",
+      scenePreset: { mode: "no-lens", showRays: true, rayDisplayMode: "contributors", cameraShot: "sideAligned" },
+    },
+    {
+      id: "c04-quiz",
+      type: "quiz",
+      title: "理解チェック",
+      speaker: "ガイド",
+      text: ["スクリーンだけでは像にならない理由は？"],
+      choices: [
+        { id: "a", label: "光が速すぎるから", isCorrect: false, feedback: "速さではなく、光の出どころが混ざることが問題です。" },
+        { id: "b", label: "1ピクセルにいろいろな場所からの光が混ざるから", isCorrect: true, feedback: "正解です。位置情報が失われるため形になりません。" },
+        { id: "c", label: "スクリーンが黒いから", isCorrect: false, feedback: "スクリーンの色ではなく、対応関係が失われることが原因です。" },
+        { id: "d", label: "りんごが赤いから", isCorrect: false, feedback: "色ではありません。" },
+      ],
+    },
+    {
+      id: "c04-summary",
+      type: "summary",
+      title: "第4章まとめ",
+      speaker: "ガイド",
+      text: ["光が届くだけでは像にはなりません。"],
+      summaryItems: ["光が届くだけでは像にならない", "1ピクセルに多くの場所からの光が混ざると位置情報が失われる", "像を作るには物体上の点とスクリーン上の点が対応する必要がある"],
+      glossaryTerms: ["位置情報", "混ざり", "像"],
+      nextChapterPreview: "次は、見えるとは位置関係が保たれることだと整理します。",
+    },
+  ],
+};
