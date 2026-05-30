@@ -206,6 +206,215 @@ function AppleObject({ config }: { config: SceneConfig }) {
   );
 }
 
+const lensGlassIndex = 1.52;
+const lensConicConstant = -1.35;
+
+type HyperbolicLensShape = {
+  apertureRadius: number;
+  curvatureRadius: number;
+  edgeThickness: number;
+  centerThickness: number;
+};
+
+function hyperbolicSag(radialDistance: number, curvatureRadius: number): number {
+  const curvature = 1 / Math.max(0.001, curvatureRadius);
+  const underRoot = 1 - (1 + lensConicConstant) * curvature * curvature * radialDistance * radialDistance;
+  return (curvature * radialDistance * radialDistance) / (1 + Math.sqrt(Math.max(0.0001, underRoot)));
+}
+
+function lensShapeFromConfig(config: SceneConfig): HyperbolicLensShape {
+  const apertureRadius = Math.max(0.08, config.apertureRadius);
+  const focalLength = Math.max(0.25, config.focalLength);
+  const curvatureRadius = Math.max(apertureRadius * 1.12, 2 * (lensGlassIndex - 1) * focalLength);
+  const edgeThickness = Math.max(0.045, apertureRadius * 0.08);
+  const edgeSag = hyperbolicSag(apertureRadius, curvatureRadius);
+
+  return {
+    apertureRadius,
+    curvatureRadius,
+    edgeThickness,
+    centerThickness: edgeThickness + edgeSag * 2,
+  };
+}
+
+function lensSurfaceX(shape: HyperbolicLensShape, radialDistance: number, side: "left" | "right"): number {
+  const sag = hyperbolicSag(radialDistance, shape.curvatureRadius);
+  return side === "right" ? shape.centerThickness * 0.5 - sag : -shape.centerThickness * 0.5 + sag;
+}
+
+function createHyperbolicLensGeometry(shape: HyperbolicLensShape): THREE.BufferGeometry {
+  const radialSegments = 34;
+  const angularSegments = 96;
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  const ringStride = angularSegments + 1;
+  const sideStride = (radialSegments + 1) * ringStride;
+  const vertexIndex = (side: 0 | 1, ring: number, segment: number) => side * sideStride + ring * ringStride + segment;
+
+  for (const side of [0, 1] as const) {
+    for (let ring = 0; ring <= radialSegments; ring += 1) {
+      const radialDistance = (shape.apertureRadius * ring) / radialSegments;
+      const x = lensSurfaceX(shape, radialDistance, side === 0 ? "right" : "left");
+
+      for (let segment = 0; segment <= angularSegments; segment += 1) {
+        const angle = (segment / angularSegments) * Math.PI * 2;
+        vertices.push(x, Math.sin(angle) * radialDistance, Math.cos(angle) * radialDistance);
+      }
+    }
+  }
+
+  for (let ring = 0; ring < radialSegments; ring += 1) {
+    for (let segment = 0; segment < angularSegments; segment += 1) {
+      const rightA = vertexIndex(0, ring, segment);
+      const rightB = vertexIndex(0, ring + 1, segment);
+      const rightC = vertexIndex(0, ring + 1, segment + 1);
+      const rightD = vertexIndex(0, ring, segment + 1);
+      indices.push(rightA, rightB, rightD, rightB, rightC, rightD);
+
+      const leftA = vertexIndex(1, ring, segment);
+      const leftB = vertexIndex(1, ring + 1, segment);
+      const leftC = vertexIndex(1, ring + 1, segment + 1);
+      const leftD = vertexIndex(1, ring, segment + 1);
+      indices.push(leftA, leftD, leftB, leftB, leftD, leftC);
+    }
+  }
+
+  for (let segment = 0; segment < angularSegments; segment += 1) {
+    const rightA = vertexIndex(0, radialSegments, segment);
+    const rightB = vertexIndex(0, radialSegments, segment + 1);
+    const leftA = vertexIndex(1, radialSegments, segment);
+    const leftB = vertexIndex(1, radialSegments, segment + 1);
+    indices.push(rightA, leftA, rightB, rightB, leftA, leftB);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setIndex(indices);
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function lensProfilePoints(shape: HyperbolicLensShape, side: "left" | "right"): Vec3[] {
+  const points: Vec3[] = [];
+  const segments = 42;
+
+  for (let index = 0; index <= segments; index += 1) {
+    const y = shape.apertureRadius * (1 - (index / segments) * 2);
+    const radialDistance = Math.abs(y);
+    points.push({ x: lensSurfaceX(shape, radialDistance, side), y, z: 0 });
+  }
+
+  return points;
+}
+
+function createPinholePlateGeometry(panelWidth: number, panelHeight: number, holeRadius: number, thickness: number): THREE.BufferGeometry {
+  const bevelSize = Math.min(0.012, thickness * 0.18, holeRadius * 0.25);
+  const shape = new THREE.Shape();
+  shape.moveTo(-panelWidth / 2, -panelHeight / 2);
+  shape.lineTo(panelWidth / 2, -panelHeight / 2);
+  shape.lineTo(panelWidth / 2, panelHeight / 2);
+  shape.lineTo(-panelWidth / 2, panelHeight / 2);
+  shape.lineTo(-panelWidth / 2, -panelHeight / 2);
+
+  const aperture = new THREE.Path();
+  aperture.absarc(0, 0, holeRadius, 0, Math.PI * 2, true);
+  shape.holes.push(aperture);
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    bevelEnabled: true,
+    bevelSegments: 2,
+    bevelSize,
+    bevelThickness: bevelSize,
+    curveSegments: 96,
+    depth: thickness,
+  });
+  geometry.center();
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function PinholeModel({ config }: { config: SceneConfig }) {
+  const panelHeight = 1.82;
+  const panelWidth = 2.35;
+  const plateThickness = 0.11;
+  const holeRadius = Math.min(0.34, Math.max(0.01, config.pinholeRadius));
+  const ringTube = Math.max(0.006, Math.min(0.018, holeRadius * 0.16));
+  const plateGeometry = useMemo(
+    () => createPinholePlateGeometry(panelWidth, panelHeight, holeRadius, plateThickness),
+    [holeRadius],
+  );
+
+  useEffect(() => () => plateGeometry.dispose(), [plateGeometry]);
+
+  return (
+    <group position={toTuple(config.lensPosition)}>
+      <mesh geometry={plateGeometry} rotation={[0, Math.PI / 2, 0]}>
+        <meshStandardMaterial color="#1c2025" roughness={0.78} metalness={0.18} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh rotation={[0, Math.PI / 2, 0]}>
+        <torusGeometry args={[holeRadius, ringTube, 12, 80]} />
+        <meshStandardMaterial color="#e1b84d" emissive="#8b681a" emissiveIntensity={0.35} roughness={0.38} metalness={0.25} />
+      </mesh>
+      <mesh rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[holeRadius, holeRadius, plateThickness * 1.7, 64, 1, true]} />
+        <meshBasicMaterial color="#ffd35a" transparent opacity={0.18} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <Text
+        position={[0, panelHeight * 0.58, 0]}
+        fontSize={0.12}
+        color="#ffe6a3"
+        anchorX="center"
+        anchorY="middle"
+      >
+        ピンホール板
+      </Text>
+    </group>
+  );
+}
+
+function HyperbolicLensModel({ config }: { config: SceneConfig }) {
+  const shape = useMemo(() => lensShapeFromConfig(config), [config.apertureRadius, config.focalLength]);
+  const lensGeometry = useMemo(() => createHyperbolicLensGeometry(shape), [shape]);
+  const rightProfile = useMemo(() => lensProfilePoints(shape, "right"), [shape]);
+  const leftProfile = useMemo(() => lensProfilePoints(shape, "left"), [shape]);
+
+  useEffect(() => () => lensGeometry.dispose(), [lensGeometry]);
+
+  return (
+    <group position={toTuple(config.lensPosition)}>
+      <mesh geometry={lensGeometry}>
+        <meshPhysicalMaterial
+          color="#9ed7e4"
+          transparent
+          opacity={0.42}
+          roughness={0.03}
+          metalness={0}
+          transmission={0.62}
+          thickness={shape.centerThickness}
+          ior={lensGlassIndex}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <mesh rotation={[0, Math.PI / 2, 0]}>
+        <torusGeometry args={[shape.apertureRadius, Math.max(0.014, shape.edgeThickness * 0.18), 12, 96]} />
+        <meshStandardMaterial color="#2d6b73" roughness={0.32} metalness={0.18} />
+      </mesh>
+      <Line points={rightProfile.map(toTuple)} color="#c9f8ff" lineWidth={1.4} transparent opacity={0.82} />
+      <Line points={leftProfile.map(toTuple)} color="#c9f8ff" lineWidth={1.4} transparent opacity={0.82} />
+      <Text
+        position={[0, shape.apertureRadius + 0.26, 0]}
+        fontSize={0.115}
+        color="#cff7ff"
+        anchorX="center"
+        anchorY="middle"
+      >
+        {`双曲面レンズ  f ${config.focalLength.toFixed(2)} / 厚み ${shape.centerThickness.toFixed(2)}`}
+      </Text>
+    </group>
+  );
+}
+
 function LensObject({ config }: { config: SceneConfig }) {
   const mode = config.mode;
 
@@ -214,59 +423,10 @@ function LensObject({ config }: { config: SceneConfig }) {
   }
 
   if (mode === "pinhole") {
-    const panelHeight = 1.82;
-    const panelWidth = 2.35;
-    const hole = Math.max(0.09, config.pinholeRadius * 3.2);
-    const barY = (panelHeight - hole * 2) / 2;
-    const barZ = (panelWidth - hole * 2) / 2;
-
-    return (
-      <group position={toTuple(config.lensPosition)}>
-        <mesh position={[0, hole + barY / 2, 0]}>
-          <boxGeometry args={[0.08, barY, panelWidth]} />
-          <meshStandardMaterial color="#202226" roughness={0.8} />
-        </mesh>
-        <mesh position={[0, -hole - barY / 2, 0]}>
-          <boxGeometry args={[0.08, barY, panelWidth]} />
-          <meshStandardMaterial color="#202226" roughness={0.8} />
-        </mesh>
-        <mesh position={[0, 0, hole + barZ / 2]}>
-          <boxGeometry args={[0.08, hole * 2, barZ]} />
-          <meshStandardMaterial color="#202226" roughness={0.8} />
-        </mesh>
-        <mesh position={[0, 0, -hole - barZ / 2]}>
-          <boxGeometry args={[0.08, hole * 2, barZ]} />
-          <meshStandardMaterial color="#202226" roughness={0.8} />
-        </mesh>
-        <mesh rotation={[0, Math.PI / 2, 0]}>
-          <torusGeometry args={[hole, 0.012, 10, 48]} />
-          <meshBasicMaterial color="#ffd35a" />
-        </mesh>
-      </group>
-    );
+    return <PinholeModel config={config} />;
   }
 
-  const radius = Math.max(0.1, config.apertureRadius);
-
-  return (
-    <group position={toTuple(config.lensPosition)}>
-      <mesh rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[radius, radius, 0.16, 48]} />
-        <meshPhysicalMaterial
-          color="#9ed7e4"
-          transparent
-          opacity={0.34}
-          roughness={0.08}
-          transmission={0.6}
-          thickness={0.36}
-        />
-      </mesh>
-      <mesh rotation={[0, Math.PI / 2, 0]}>
-        <torusGeometry args={[radius, 0.018, 12, 80]} />
-        <meshStandardMaterial color="#2d6b73" roughness={0.35} />
-      </mesh>
-    </group>
-  );
+  return <HyperbolicLensModel config={config} />;
 }
 
 function SensorPlane({
