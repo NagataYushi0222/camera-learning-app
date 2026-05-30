@@ -53,8 +53,12 @@ button:disabled {
 .app-shell {
   background: #eceff3;
   display: grid;
-  grid-template-rows: 72px minmax(0, 1fr) clamp(260px, 30vh, 340px);
+  grid-template-rows: 72px minmax(0, 1fr);
   height: 100vh;
+}
+
+.mobile-workspace-tabs {
+  display: none;
 }
 
 .top-bar {
@@ -170,9 +174,40 @@ button:disabled {
 .workspace {
   display: grid;
   gap: 0.85rem;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 28vw);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
   padding: 0.85rem;
+}
+
+.left-learning-column {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-rows: minmax(0, 1fr) clamp(112px, 18vh, 150px);
+  min-height: 0;
+}
+
+.left-learning-column:has(.scenario-player.expanded) {
+  grid-template-rows: minmax(0, 1fr) clamp(220px, 30vh, 340px);
+}
+
+.explore-mode .left-learning-column {
+  grid-template-rows: minmax(0, 1fr) 96px;
+}
+
+.explore-mode .left-learning-column:has(.scenario-player.expanded) {
+  grid-template-rows: minmax(0, 1fr) clamp(190px, 26vh, 300px);
+}
+
+.scene-pane,
+.lesson-pane,
+.right-inspector {
+  min-height: 0;
+}
+
+.lesson-pane {
+  overflow: hidden;
 }
 
 .view-pane {
@@ -320,8 +355,9 @@ button:disabled {
 .sensor-controls-scroll {
   display: grid;
   gap: 0.85rem;
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 0.85rem 0.85rem 1rem;
 }
 
@@ -579,7 +615,81 @@ button:disabled {
 .sensor-actions {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.45rem;
+}
+
+.parameter-tabs {
+  display: grid;
+  gap: 0.72rem;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.parameter-tabs-header {
+  align-items: center;
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.parameter-tabs-header > strong {
+  color: var(--teal-dark);
+  font-size: 0.9rem;
+}
+
+.parameter-tab-buttons {
+  background: #edf2f2;
+  border: 1px solid #d5dddd;
+  border-radius: 8px;
+  display: grid;
+  grid-auto-flow: column;
+  overflow: hidden;
+}
+
+.parameter-tab-button {
+  background: transparent;
+  border-right: 1px solid #d5dddd;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+  min-height: 32px;
+  padding: 0 0.62rem;
+}
+
+.parameter-tab-button:last-child {
+  border-right: 0;
+}
+
+.parameter-tab-button.active {
+  background: var(--teal);
+  color: #ffffff;
+}
+
+.parameter-tab-panel {
+  align-content: start;
+  display: grid;
+  gap: 0.82rem;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
+.mode-grid {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.display-toggle-grid {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.mobile-show-scene-action {
+  display: none;
 }
 
 .experiment-panel {
@@ -649,6 +759,12 @@ button:disabled {
   line-height: 1.35;
 }
 
+.preset-button.active {
+  background: rgba(36, 122, 120, 0.12);
+  border-color: rgba(36, 122, 120, 0.42);
+  color: var(--teal-dark);
+}
+
 .parameter-group {
   border-top: 1px solid #e6eaee;
   display: grid;
@@ -699,6 +815,10 @@ button:disabled {
 .reset-action {
   min-height: 32px;
   padding: 0 0.62rem;
+}
+
+.reset-action.wide {
+  width: 100%;
 }
 
 .secondary-action {
@@ -1116,14 +1236,16 @@ button:disabled {
 .novel-box {
   align-items: stretch;
   background: #20242a;
-  border-top: 1px solid #303842;
+  border: 1px solid #303842;
+  border-radius: 8px;
   color: #f7f8fa;
   display: grid;
-  gap: 0.9rem;
-  grid-template-columns: 96px minmax(0, 1fr) minmax(260px, auto);
+  gap: 0.75rem;
+  grid-template-columns: 68px minmax(0, 1fr) minmax(300px, 330px);
+  height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: 1rem 1.2rem;
+  padding: 0.72rem 0.84rem;
 }
 
 .guide-avatar {
@@ -1135,9 +1257,9 @@ button:disabled {
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   display: flex;
-  height: 86px;
+  height: 62px;
   justify-content: center;
-  width: 86px;
+  width: 62px;
 }
 
 .guide-avatar span {
@@ -1161,20 +1283,20 @@ button:disabled {
   align-items: baseline;
   display: flex;
   gap: 0.65rem;
-  margin-bottom: 0.45rem;
+  margin-bottom: 0.34rem;
 }
 
 .speaker-name {
   background: #f0b548;
   border-radius: 999px;
   color: #1d2228;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   font-weight: 900;
   padding: 0.24rem 0.6rem;
 }
 
 .dialogue-heading strong {
-  font-size: 1.08rem;
+  font-size: 1.02rem;
   font-weight: 900;
 }
 
@@ -1191,8 +1313,8 @@ button:disabled {
 
 .dialogue-lines p {
   color: #edf1f3;
-  font-size: 1.08rem;
-  font-weight: 700;
+  font-size: 1.05rem;
+  font-weight: 800;
 }
 
 .takeaway {
@@ -1207,9 +1329,9 @@ button:disabled {
 .dialogue-actions {
   align-content: center;
   display: grid;
-  gap: 0.5rem;
-  grid-template-columns: repeat(2, minmax(128px, 1fr));
-  min-width: 260px;
+  gap: 0.42rem;
+  grid-template-columns: repeat(3, minmax(86px, 1fr));
+  min-width: 300px;
 }
 
 .dialogue-actions button {
@@ -1217,7 +1339,8 @@ button:disabled {
   border-radius: 8px;
   color: #20242a;
   font-weight: 800;
-  min-height: 44px;
+  min-height: 36px;
+  padding: 0 0.68rem;
 }
 
 .dialogue-actions .secondary-action {
@@ -1225,13 +1348,36 @@ button:disabled {
   color: #eff7f7;
 }
 
-@media (max-width: 1120px) {
+.scenario-progress {
+  align-items: center;
+  color: #d8dee4;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 900;
+  gap: 0.35rem;
+  grid-column: 1 / -1;
+}
+
+.scenario-player.compact .dialogue-content {
+  overflow: hidden;
+}
+
+.scenario-player.compact .focus-message,
+.scenario-player.compact .takeaway {
+  display: none;
+}
+
+.scenario-player.expanded .dialogue-content {
+  padding-bottom: 0.25rem;
+}
+
+@media (max-width: 1023px) {
   body {
     overflow: auto;
   }
 
   .app-shell {
-    grid-template-rows: auto auto auto;
+    grid-template-rows: auto minmax(0, 1fr);
     height: auto;
     min-height: 100vh;
   }
@@ -1248,10 +1394,34 @@ button:disabled {
 
   .workspace {
     grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .guided-mode .left-learning-column,
+  .explore-mode .left-learning-column {
+    grid-template-rows: minmax(480px, 56vh) clamp(128px, 20vh, 190px);
+  }
+
+  .guided-mode .left-learning-column:has(.scenario-player.expanded),
+  .explore-mode .left-learning-column:has(.scenario-player.expanded) {
+    grid-template-rows: minmax(420px, 50vh) clamp(190px, 28vh, 300px);
   }
 
   .scene-shell {
     min-height: 520px;
+  }
+
+  .sensor-pane {
+    min-height: 720px;
+  }
+
+  .sensor-controls-scroll {
+    grid-template-rows: auto auto;
+    overflow: visible;
+  }
+
+  .parameter-tabs {
+    min-height: 430px;
   }
 
   .novel-box {
@@ -1266,17 +1436,121 @@ button:disabled {
 
   .dialogue-actions {
     grid-column: 1 / -1;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
+  html,
+  body,
+  #root {
+    height: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    overflow: hidden;
+  }
+
+  .app-shell {
+    grid-template-rows: auto 48px minmax(0, 1fr);
+    height: 100vh;
+    min-height: 0;
+  }
+
+  .top-bar {
+    gap: 0.55rem;
+    grid-template-columns: 1fr;
+    padding: 0.58rem 0.65rem;
+  }
+
+  .top-progress {
+    display: none;
+  }
+
+  .mode-switcher {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .top-actions {
+    display: none;
+  }
+
+  .mobile-workspace-tabs {
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    gap: 0.35rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 0.35rem 0.55rem;
+  }
+
+  .mobile-tab-button {
+    background: #edf2f2;
+    border-radius: 8px;
+    color: var(--ink);
+    font-size: 0.78rem;
+    font-weight: 900;
+    min-height: 38px;
+    padding: 0 0.25rem;
+  }
+
+  .mobile-tab-button.active {
+    background: var(--teal);
+    color: #ffffff;
+  }
+
   .workspace {
+    grid-template-columns: 1fr;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
     padding: 0.55rem;
+  }
+
+  .guided-mode .left-learning-column,
+  .explore-mode .left-learning-column,
+  .guided-mode .left-learning-column:has(.scenario-player.expanded),
+  .explore-mode .left-learning-column:has(.scenario-player.expanded) {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
   }
 
   .view-pane {
     border-radius: 6px;
+  }
+
+  .scene-pane,
+  .sensor-pane,
+  .lesson-pane {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .scene-shell {
+    min-height: 0;
+  }
+
+  .mobile-tab-scene .lesson-pane,
+  .mobile-tab-scene .sensor-pane,
+  .mobile-tab-lesson .scene-pane,
+  .mobile-tab-lesson .sensor-pane,
+  .mobile-tab-sensor .left-learning-column,
+  .mobile-tab-controls .left-learning-column {
+    display: none;
+  }
+
+  .mobile-tab-sensor .sensor-pane,
+  .mobile-tab-controls .sensor-pane {
+    display: block;
+  }
+
+  .mobile-tab-lesson .left-learning-column {
+    display: grid;
   }
 
   .scene-title,
@@ -1298,15 +1572,76 @@ button:disabled {
 
   .sensor-screen {
     --sensor-side-margin: 0.75rem;
+    width: min(calc(100% - (var(--sensor-side-margin) * 2)), 58vh);
+  }
+
+  .sensor-panel {
+    height: 100%;
+  }
+
+  .sensor-controls-scroll {
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+    padding: 0.65rem;
+  }
+
+  .mobile-tab-sensor .parameter-tabs {
+    display: none;
+  }
+
+  .mobile-tab-sensor .sensor-controls-scroll {
+    grid-template-rows: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+
+  .mobile-tab-controls .sensor-fixed,
+  .mobile-tab-controls .pixel-info {
+    display: none;
+  }
+
+  .mobile-tab-controls .sensor-controls-scroll {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .mobile-tab-controls .parameter-tabs {
+    display: grid;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .parameter-tabs-header {
+    grid-template-columns: 1fr;
+  }
+
+  .parameter-tab-buttons {
+    grid-auto-flow: column;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .parameter-tab-button {
+    padding: 0 0.35rem;
+  }
+
+  .mode-grid,
+  .preset-grid,
+  .display-toggle-grid,
+  .optical-metrics {
+    grid-template-columns: 1fr;
   }
 
   .pixel-info {
-    padding: 0.2rem 0.75rem 0;
+    padding: 0.7rem;
+  }
+
+  .mobile-show-scene-action {
+    display: inline-flex;
   }
 
   .novel-box {
     gap: 0.65rem;
     grid-template-columns: 1fr;
+    height: 100%;
+    overflow: hidden;
     padding: 0.8rem;
   }
 
@@ -1322,5 +1657,6 @@ button:disabled {
 
   .dialogue-actions {
     grid-template-columns: 1fr;
+    min-width: 0;
   }
 }

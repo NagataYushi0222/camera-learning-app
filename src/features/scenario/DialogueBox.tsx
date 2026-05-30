@@ -19,10 +19,14 @@ function renderLine(line: string, terms: string[] = []) {
 export function DialogueBox({
   step,
   children,
+  compact = false,
 }: {
   step: LessonStep;
   children?: ReactNode;
+  compact?: boolean;
 }) {
+  const lines = compact ? step.text.slice(0, 2) : step.text;
+
   return (
     <div className="dialogue-content">
       <div className="dialogue-heading">
@@ -30,7 +34,7 @@ export function DialogueBox({
         <strong>{step.title}</strong>
       </div>
       <div className="dialogue-lines">
-        {step.text.map((line) => (
+        {lines.map((line) => (
           <p key={line}>{renderLine(line, step.glossaryTerms)}</p>
         ))}
       </div>

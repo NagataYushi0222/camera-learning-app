@@ -1,5 +1,5 @@
 import { BookOpen, ChevronLeft, ChevronRight, Compass, FlaskConical, Map } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getChapter, getStep } from "../../content/chapters";
 import type { Choice, RequiredAction } from "../../content/lessonTypes";
 import { computeOpticalInfo } from "../../simulation/opticsModel";
@@ -48,6 +48,7 @@ function isRequiredActionComplete(requiredAction: RequiredAction | undefined): b
 }
 
 export function ScenarioPlayer() {
+  const [expanded, setExpanded] = useState(false);
   const {
     currentChapterId,
     currentStepId,
@@ -78,6 +79,12 @@ export function ScenarioPlayer() {
   const quizAnsweredCorrectly = step.type !== "quiz" || selectedChoice?.isCorrect === true;
   const requiresChoice = (step.type === "choice" || step.type === "quiz") && !selectedChoiceId;
   const disableNext = (step.type === "task" && !taskCompleted) || requiresChoice || !quizAnsweredCorrectly;
+  const forceExpanded = step.type === "choice" || step.type === "quiz" || step.type === "task" || step.type === "summary";
+  const compact = !expanded && !forceExpanded;
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [currentChapterId, currentStepId]);
 
   const selectChoice = (choice: Choice) => {
     if (choice.scenePreset) {
@@ -93,12 +100,12 @@ export function ScenarioPlayer() {
   };
 
   return (
-    <footer className="novel-box lesson-dialog scenario-player" aria-label="解説">
+    <footer className={`novel-box lesson-dialog scenario-player ${expanded || forceExpanded ? "expanded" : "compact"}`} aria-label="解説">
       <div className="guide-avatar" aria-hidden="true">
         <span>光</span>
       </div>
 
-      <DialogueBox step={step}>
+      <DialogueBox step={step} compact={compact}>
         {step.type === "summary" ? <ChapterSummary step={step} /> : null}
         {step.choices?.length ? <ChoicePanel choices={step.choices} selectedChoiceId={selectedChoiceId} onSelect={selectChoice} /> : null}
         {choiceFeedback ? <p className={selectedChoice?.isCorrect === false ? "choice-feedback error" : "choice-feedback"}>{choiceFeedback}</p> : null}
@@ -117,6 +124,11 @@ export function ScenarioPlayer() {
           <BookOpen size={15} aria-hidden="true" />
           {progressText}
         </span>
+        {!forceExpanded ? (
+          <button className="secondary-action detail-toggle" onClick={() => setExpanded((value) => !value)} type="button">
+            {expanded ? "短く表示" : "詳しく読む"}
+          </button>
+        ) : null}
         <button onClick={previousStep} type="button" disabled={stepIndex === 0 && chapter.order === 1}>
           <ChevronLeft size={16} aria-hidden="true" />
           前へ
