@@ -243,6 +243,31 @@ button:disabled {
   color: #b9f2ed;
 }
 
+.panel-status-pills {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.render-status {
+  background: #eef4f2;
+  border: 1px solid #d5e4df;
+  border-radius: 999px;
+  color: #41605d;
+  font-size: 0.74rem;
+  font-weight: 900;
+  padding: 0.32rem 0.58rem;
+  white-space: nowrap;
+}
+
+.render-status.previewing {
+  background: rgba(213, 138, 25, 0.14);
+  border-color: rgba(213, 138, 25, 0.34);
+  color: #9a650d;
+}
+
 .scene-toolbar {
   align-items: center;
   background: rgba(17, 18, 20, 0.92);
@@ -444,6 +469,15 @@ button:disabled {
   font-size: 0.9rem;
   line-height: 1.65;
   margin: 0;
+}
+
+.pixel-info .preview-analysis-note {
+  background: rgba(213, 138, 25, 0.1);
+  border: 1px solid rgba(213, 138, 25, 0.24);
+  border-radius: 8px;
+  color: #82570d;
+  font-weight: 800;
+  padding: 0.45rem 0.58rem;
 }
 
 .pixel-info dl {

@@ -11,7 +11,7 @@ import {
   rayDisplayModeLabels,
   sensorGrid,
   type SceneConfig,
-  type SensorRenderResult,
+  type SensorDisplayResult,
   type TracedRay,
   type Vec3,
 } from "../simulation/opticsModel";
@@ -435,7 +435,7 @@ function SensorPlane({
   selectedPixel,
 }: {
   config: SceneConfig;
-  sensorResult: SensorRenderResult;
+  sensorResult: SensorDisplayResult;
   selectedPixel: ReturnType<typeof useLessonStore.getState>["selectedPixel"];
 }) {
   const texture = useMemo(() => {
@@ -716,6 +716,7 @@ function SceneContent() {
   const {
     sceneConfig,
     sensorResult,
+    displaySensorResult,
     selectedPixel,
     selectedContributorRays,
     selectedSourceBundleRays,
@@ -748,7 +749,7 @@ function SceneContent() {
       <LightSource config={sceneConfig} showWavefronts={showWavefronts} />
       <AppleObject config={sceneConfig} />
       <LensObject config={sceneConfig} />
-      <SensorPlane config={sceneConfig} sensorResult={sensorResult} selectedPixel={selectedPixel} />
+      <SensorPlane config={sceneConfig} sensorResult={displaySensorResult} selectedPixel={selectedPixel} />
       <CameraWireframe config={sceneConfig} />
       <AxisMarkers config={sceneConfig} />
       <IdealOpticsOverlay config={sceneConfig} sourceBundleRays={visibleSourceBundleRays} />

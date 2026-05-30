@@ -153,6 +153,18 @@ export type SensorRenderResult = {
   config: SceneConfig;
 };
 
+export type SensorPreviewResult = {
+  width: number;
+  height: number;
+  pixelBuffer: Uint8ClampedArray;
+  maxChannel: number;
+  idealImageX: number | null;
+  config: SceneConfig;
+  isPreview: true;
+};
+
+export type SensorDisplayResult = SensorRenderResult | SensorPreviewResult;
+
 type SensorHit = PixelHit & {
   u: number;
   v: number;
@@ -161,6 +173,7 @@ type SensorHit = PixelHit & {
 };
 
 const maxRaysPerPixel = 14;
+const pixelRayTrackingWeightThreshold = 0.18;
 
 export function resolutionForQuality(quality: SensorQuality): SensorResolution {
   if (quality === "low") {
@@ -620,6 +633,51 @@ export function renderSensorImage(config: SceneConfig): SensorRenderResult {
   };
 }
 
+export function renderSensorPreview(config: SceneConfig): SensorPreviewResult {
+  const resolution = previewResolutionFor(config.resolution);
+  const previewConfig: SceneConfig = {
+    ...config,
+    resolution,
+    sampleCount: 1,
+    rayCount: Math.min(7, config.rayCount),
+    sensorDisplayMode: "learning",
+  };
+  const accum = new Float32Array(resolution.columns * resolution.rows * 3);
+  const idealImageX = computeIdealImageX(previewConfig);
+
+  if (!previewConfig.lightEnabled || previewConfig.lightIntensity <= 0.001) {
+    return {
+      width: resolution.columns,
+      height: resolution.rows,
+      pixelBuffer: toPixelBuffer(accum, previewConfig.mode, resolution, "learning"),
+      maxChannel: 0,
+      idealImageX,
+      config: previewConfig,
+      isPreview: true,
+    };
+  }
+
+  const samples = createAppleSamples(previewConfig.objectPosition, 1).filter((_, index) => index % 2 === 0);
+
+  if (previewConfig.mode === "no-lens") {
+    renderNoLensPreview(previewConfig, samples, accum);
+  } else if (previewConfig.mode === "pinhole") {
+    renderPinholePreview(previewConfig, samples, accum);
+  } else {
+    renderLensPreview(previewConfig, samples, accum);
+  }
+
+  return {
+    width: resolution.columns,
+    height: resolution.rows,
+    pixelBuffer: toPixelBuffer(accum, previewConfig.mode, resolution, "learning"),
+    maxChannel: maxValue(accum),
+    idealImageX,
+    config: previewConfig,
+    isPreview: true,
+  };
+}
+
 function renderNoLens(
   config: SceneConfig,
   samples: ObjectSample[],
@@ -764,9 +822,33 @@ function renderLens(
 ) {
   const aperturePoints = diskSamples(config.lensPosition, Math.max(0.04, config.apertureRadius), config.rayCount);
   const brightness = config.mode === "out-of-focus" ? 0.17 : 0.26;
+  const learningRadius = lensLearningRadius(config);
 
   for (const sample of samples) {
     const imagePoint = computeIdealImagePoint(config, sample.position);
+    const centerHitPoint = intersectRayWithX(config.lensPosition, sub(imagePoint, config.lensPosition), config.sensorPosition.x);
+    const centerHit = centerHitPoint ? pointToSensorHit(config, centerHitPoint) : null;
+    const light = sampleLight(sample, config);
+    const focusDistance = Math.abs((computeIdealImageX(config) ?? config.sensorPosition.x) - config.sensorPosition.x);
+    const defocusBoost = config.mode === "out-of-focus" ? Math.min(1.25, 0.85 + focusDistance * 0.35) : 1;
+    const rayIntensity = sample.intensity * light * brightness * defocusBoost;
+
+    if (centerHit && centerHitPoint) {
+      const aggregateIntensity = rayIntensity * Math.max(1, Math.sqrt(aperturePoints.length)) * 0.72;
+      const aggregateRay = makeRay({
+        id: `lens-learning-${sample.id}`,
+        points: [sample.position, config.lensPosition, imagePoint, centerHitPoint],
+        sample,
+        exactHitPixel: centerHit,
+        displayedHitPixel: centerHit,
+        sensorHitPoint: centerHitPoint,
+        aperturePoint: config.lensPosition,
+        idealImagePoint: imagePoint,
+        intensity: aggregateIntensity,
+        rayKind: "sensor-sample",
+      });
+      splat(learningAccum, pixelToRays, config.resolution, centerHit, sample.color, aggregateIntensity, learningRadius, aggregateRay, false);
+    }
 
     for (const aperturePoint of aperturePoints) {
       if (radialDistance(aperturePoint, config.lensPosition) > config.apertureRadius) {
@@ -781,10 +863,6 @@ function renderLens(
         continue;
       }
 
-      const light = sampleLight(sample, config);
-      const focusDistance = Math.abs((computeIdealImageX(config) ?? config.sensorPosition.x) - config.sensorPosition.x);
-      const defocusBoost = config.mode === "out-of-focus" ? Math.min(1.25, 0.85 + focusDistance * 0.35) : 1;
-      const rayIntensity = sample.intensity * light * brightness * defocusBoost;
       const ray = makeRay({
         id: `lens-${sample.id}-${aperturePoint.y.toFixed(2)}-${aperturePoint.z.toFixed(2)}`,
         points: [sample.position, aperturePoint, imagePoint, hitPoint],
@@ -797,7 +875,7 @@ function renderLens(
         intensity: rayIntensity,
         rayKind: "sensor-sample",
       });
-      splat(learningAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, lensLearningRadius(config), ray, true);
+      pushPixelRay(pixelToRays, hit, ray);
       splat(sampleAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, 0.42, ray, false);
       splat(debugAccum, pixelToRays, config.resolution, hit, sample.color, rayIntensity, 0.24, ray, false);
 
@@ -805,6 +883,147 @@ function renderLens(
         rays.push(ray);
       }
     }
+  }
+}
+
+function previewResolutionFor(resolution: SensorResolution): SensorResolution {
+  if (resolution.columns <= 112) {
+    return resolution;
+  }
+
+  return { columns: 112, rows: 72 };
+}
+
+function makePreviewHit(resolution: SensorResolution, u: number, v: number): SensorHit | null {
+  if (u < -0.25 || u > 1.25 || v < -0.25 || v > 1.25) {
+    return null;
+  }
+
+  const clampedU = Math.min(Math.max(u, 0), 1);
+  const clampedV = Math.min(Math.max(v, 0), 1);
+  const colFloat = clampedU * resolution.columns - 0.5;
+  const rowFloat = clampedV * resolution.rows - 0.5;
+
+  return {
+    col: Math.min(Math.max(Math.round(colFloat), 0), resolution.columns - 1),
+    row: Math.min(Math.max(Math.round(rowFloat), 0), resolution.rows - 1),
+    u: clampedU,
+    v: clampedV,
+    colFloat,
+    rowFloat,
+  };
+}
+
+function pointToPreviewHit(config: SceneConfig, point: Vec3): SensorHit | null {
+  return makePreviewHit(
+    config.resolution,
+    (point.z - config.sensorPosition.z) / sensorGrid.width + 0.5,
+    0.5 - (point.y - config.sensorPosition.y) / sensorGrid.height,
+  );
+}
+
+function splatPreview(
+  accum: Float32Array,
+  resolution: SensorResolution,
+  hit: SensorHit,
+  color: RgbColor,
+  intensity: number,
+  radius: number,
+) {
+  const minCol = Math.max(0, Math.floor(hit.colFloat - radius));
+  const maxCol = Math.min(resolution.columns - 1, Math.ceil(hit.colFloat + radius));
+  const minRow = Math.max(0, Math.floor(hit.rowFloat - radius));
+  const maxRow = Math.min(resolution.rows - 1, Math.ceil(hit.rowFloat + radius));
+  const sigma = Math.max(0.48, radius * 0.58);
+
+  for (let row = minRow; row <= maxRow; row += 1) {
+    for (let col = minCol; col <= maxCol; col += 1) {
+      const dx = col - hit.colFloat;
+      const dy = row - hit.rowFloat;
+      const weight = Math.exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
+      addColor(accum, resolution, col, row, color, intensity * weight);
+    }
+  }
+}
+
+function renderNoLensPreview(config: SceneConfig, samples: ObjectSample[], accum: Float32Array) {
+  const scaleFactor = resolutionScale(config);
+  const radius = 18 * scaleFactor;
+
+  for (const sample of samples) {
+    const localY = sample.position.y - config.objectPosition.y;
+    const localZ = sample.position.z - config.objectPosition.z;
+    const hit = makePreviewHit(
+      config.resolution,
+      0.5 + (localZ / sensorGrid.width) * 0.36,
+      0.5 - (localY / sensorGrid.height) * 0.36,
+    );
+
+    if (!hit) {
+      continue;
+    }
+
+    splatPreview(
+      accum,
+      config.resolution,
+      hit,
+      sample.color,
+      sample.intensity * sampleLight(sample, config) * 0.036,
+      radius,
+    );
+  }
+}
+
+function renderPinholePreview(config: SceneConfig, samples: ObjectSample[], accum: Float32Array) {
+  const aperturePoint = config.lensPosition;
+  const scaleFactor = resolutionScale(config);
+  const radius = (1.35 + config.pinholeRadius * 18) * scaleFactor;
+  const brightness = 0.22 * Math.min(2.8, Math.max(0.18, config.pinholeRadius / 0.055));
+
+  for (const sample of samples) {
+    const hitPoint = intersectRayWithX(aperturePoint, sub(aperturePoint, sample.position), config.sensorPosition.x);
+    const hit = hitPoint ? pointToPreviewHit(config, hitPoint) : null;
+
+    if (!hit) {
+      continue;
+    }
+
+    splatPreview(
+      accum,
+      config.resolution,
+      hit,
+      sample.color,
+      sample.intensity * sampleLight(sample, config) * brightness,
+      radius,
+    );
+  }
+}
+
+function renderLensPreview(config: SceneConfig, samples: ObjectSample[], accum: Float32Array) {
+  const scaleFactor = resolutionScale(config);
+  const idealX = computeIdealImageX(config) ?? config.sensorPosition.x;
+  const focusError = Math.abs(config.sensorPosition.x - idealX);
+  const baseRadius = 1.25 * scaleFactor;
+  const blurRadius = Math.min(18, (baseRadius + focusError * Math.max(0.08, config.apertureRadius) * 7.5 * scaleFactor));
+  const brightness = config.mode === "out-of-focus" ? 0.26 : 0.36;
+
+  for (const sample of samples) {
+    const imagePoint = computeIdealImagePoint(config, sample.position);
+    const hitPoint = intersectRayWithX(config.lensPosition, sub(imagePoint, config.lensPosition), config.sensorPosition.x);
+    const hit = hitPoint ? pointToPreviewHit(config, hitPoint) : null;
+
+    if (!hit) {
+      continue;
+    }
+
+    splatPreview(
+      accum,
+      config.resolution,
+      hit,
+      sample.color,
+      sample.intensity * sampleLight(sample, config) * brightness,
+      blurRadius,
+    );
   }
 }
 
@@ -1125,8 +1344,8 @@ function splat(
       }
 
       addColor(accum, resolution, col, row, color, intensity * weight);
-      if (trackPixelRays && weight > 0.08) {
-        pushPixelRay(pixelToRays, { col, row }, { ...ray, displayedHitPixel: { col, row }, hitPixel: { col, row } });
+      if (trackPixelRays && weight > pixelRayTrackingWeightThreshold) {
+        pushPixelRayContribution(pixelToRays, { col, row }, ray, intensity * weight);
       }
     }
   }
@@ -1143,6 +1362,34 @@ function pushPixelRay(pixelToRays: Record<string, TracedRay[]>, pixel: PixelHit,
   const key = pixelKey(pixel);
   const bucket = pixelToRays[key] ?? [];
   bucket.push(ray);
+  bucket.sort((a, b) => b.intensity - a.intensity);
+
+  if (bucket.length > maxRaysPerPixel) {
+    bucket.length = maxRaysPerPixel;
+  }
+
+  pixelToRays[key] = bucket;
+}
+
+function pushPixelRayContribution(
+  pixelToRays: Record<string, TracedRay[]>,
+  pixel: PixelHit,
+  ray: TracedRay,
+  intensity: number,
+) {
+  const key = pixelKey(pixel);
+  const bucket = pixelToRays[key] ?? [];
+
+  if (bucket.length >= maxRaysPerPixel && intensity <= bucket[bucket.length - 1].intensity) {
+    return;
+  }
+
+  bucket.push({
+    ...ray,
+    intensity,
+    displayedHitPixel: pixel,
+    hitPixel: pixel,
+  });
   bucket.sort((a, b) => b.intensity - a.intensity);
 
   if (bucket.length > maxRaysPerPixel) {

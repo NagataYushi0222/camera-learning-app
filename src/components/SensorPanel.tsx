@@ -46,42 +46,24 @@ type NumericControlProps = {
   digits?: number;
   value: number;
   onChange: (key: keyof SimulationParams, value: number) => void;
+  onCommit: () => void;
 };
 
-function NumericControl({ label, paramKey, min, max, step, unit = "", digits = 2, value, onChange }: NumericControlProps) {
+function NumericControl({ label, paramKey, min, max, step, unit = "", digits = 2, value, onChange, onCommit }: NumericControlProps) {
   const [draftValue, setDraftValue] = useState(value);
-  const timeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     setDraftValue(value);
   }, [value]);
 
-  useEffect(
-    () => () => {
-      if (timeoutRef.current !== null) {
-        window.clearTimeout(timeoutRef.current);
-      }
-    },
-    [],
-  );
-
-  const scheduleChange = (nextValue: number) => {
+  const updateValue = (nextValue: number) => {
     setDraftValue(nextValue);
-    if (timeoutRef.current !== null) {
-      window.clearTimeout(timeoutRef.current);
-    }
-    timeoutRef.current = window.setTimeout(() => {
-      onChange(paramKey, nextValue);
-      timeoutRef.current = null;
-    }, 90);
+    onChange(paramKey, nextValue);
   };
 
   const commitChange = (nextValue = draftValue) => {
-    if (timeoutRef.current !== null) {
-      window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
     onChange(paramKey, nextValue);
+    onCommit();
   };
 
   return (
@@ -99,7 +81,7 @@ function NumericControl({ label, paramKey, min, max, step, unit = "", digits = 2
         max={max}
         step={step}
         value={draftValue}
-        onChange={(event) => scheduleChange(Number(event.currentTarget.value))}
+        onChange={(event) => updateValue(Number(event.currentTarget.value))}
         onPointerUp={() => commitChange()}
         onBlur={() => commitChange()}
         onKeyUp={() => commitChange()}
@@ -137,6 +119,8 @@ export function SensorPanel() {
     showSensorGrid,
     sceneConfig,
     sensorResult,
+    displaySensorResult,
+    isPreviewing,
     selectedPixel,
     selectedContributorRays,
     selectedSourceBundleRays,
@@ -148,6 +132,7 @@ export function SensorPanel() {
     setRayDisplayMode,
     toggleSensorGrid,
     updateSimulationParam,
+    commitLiveSimulation,
     resetSimulationParams,
     applySimulationPreset,
     toggleLight,
@@ -167,8 +152,8 @@ export function SensorPanel() {
       return;
     }
 
-    canvas.width = sensorResult.width;
-    canvas.height = sensorResult.height;
+    canvas.width = displaySensorResult.width;
+    canvas.height = displaySensorResult.height;
 
     const context = canvas.getContext("2d");
     if (!context) {
@@ -177,12 +162,12 @@ export function SensorPanel() {
 
     context.imageSmoothingEnabled = true;
     const imageData = new ImageData(
-      new Uint8ClampedArray(sensorResult.pixelBuffer),
-      sensorResult.width,
-      sensorResult.height,
+      new Uint8ClampedArray(displaySensorResult.pixelBuffer),
+      displaySensorResult.width,
+      displaySensorResult.height,
     );
     context.putImageData(imageData, 0, 0);
-  }, [sensorResult]);
+  }, [displaySensorResult]);
 
   const updateNumber = (key: keyof SimulationParams, value: number) => {
     updateSimulationParam(key, value);
@@ -196,13 +181,18 @@ export function SensorPanel() {
             <p className="eyebrow">Ray-traced Sensor</p>
             <h2>スクリーン / センサー</h2>
           </div>
-          <span className="mode-pill">{modeLabels[mode]}</span>
+          <div className="panel-status-pills">
+            <span className={isPreviewing ? "render-status previewing" : "render-status"}>
+              {isPreviewing ? "プレビュー中" : "高品質"}
+            </span>
+            <span className="mode-pill">{modeLabels[mode]}</span>
+          </div>
         </div>
 
         <div
           className="sensor-screen"
-          style={{ aspectRatio: `${sensorResult.width} / ${sensorResult.height}` }}
-          onClick={(event) => selectPixel(pixelFromPointer(event, sensorResult.width, sensorResult.height))}
+          style={{ aspectRatio: `${displaySensorResult.width} / ${displaySensorResult.height}` }}
+          onClick={(event) => selectPixel(pixelFromPointer(event, displaySensorResult.width, displaySensorResult.height))}
           role="button"
           tabIndex={0}
           aria-label="クリックしてピクセルを選択"
@@ -309,6 +299,7 @@ export function SensorPanel() {
             <Crosshair size={16} aria-hidden="true" />
             <strong>選択ピクセル</strong>
           </div>
+          {isPreviewing ? <p className="preview-analysis-note">操作中は軽量プレビューを表示しています。光線解析は停止後の高品質結果で更新されます。</p> : null}
           <p>{pixelInfoText(mode, selectedPixel, selectedContributorRays, selectedSourceBundleRays)}</p>
           <dl>
             <div>
@@ -440,22 +431,22 @@ export function SensorPanel() {
           </div>
 
           <ParameterGroup title="基本">
-            <NumericControl label="焦点距離" paramKey="focalLength" min={0.9} max={2.1} step={0.05} value={params.focalLength} onChange={updateNumber} />
-            <NumericControl label="スクリーン距離" paramKey="sensorX" min={1.4} max={4.6} step={0.05} value={params.sensorX} onChange={updateNumber} />
-            <NumericControl label="レンズ口径" paramKey="apertureRadius" min={0.08} max={0.82} step={0.02} value={params.apertureRadius} onChange={updateNumber} />
+            <NumericControl label="焦点距離" paramKey="focalLength" min={0.9} max={2.1} step={0.05} value={params.focalLength} onChange={updateNumber} onCommit={commitLiveSimulation} />
+            <NumericControl label="スクリーン距離" paramKey="sensorX" min={1.4} max={4.6} step={0.05} value={params.sensorX} onChange={updateNumber} onCommit={commitLiveSimulation} />
+            <NumericControl label="レンズ口径" paramKey="apertureRadius" min={0.08} max={0.82} step={0.02} value={params.apertureRadius} onChange={updateNumber} onCommit={commitLiveSimulation} />
           </ParameterGroup>
 
           <ParameterGroup title="位置">
-            <NumericControl label="物体位置" paramKey="objectX" min={-4.2} max={-1.6} step={0.05} value={params.objectX} onChange={updateNumber} />
-            <NumericControl label="レンズ位置" paramKey="lensX" min={-0.7} max={0.7} step={0.05} value={params.lensX} onChange={updateNumber} />
-            <NumericControl label="スクリーン位置" paramKey="sensorX" min={1.4} max={4.6} step={0.05} value={params.sensorX} onChange={updateNumber} />
+            <NumericControl label="物体位置" paramKey="objectX" min={-4.2} max={-1.6} step={0.05} value={params.objectX} onChange={updateNumber} onCommit={commitLiveSimulation} />
+            <NumericControl label="レンズ位置" paramKey="lensX" min={-0.7} max={0.7} step={0.05} value={params.lensX} onChange={updateNumber} onCommit={commitLiveSimulation} />
+            <NumericControl label="スクリーン位置" paramKey="sensorX" min={1.4} max={4.6} step={0.05} value={params.sensorX} onChange={updateNumber} onCommit={commitLiveSimulation} />
           </ParameterGroup>
 
           <ParameterGroup title="詳細">
-            <NumericControl label="ピンホール半径" paramKey="pinholeRadius" min={0.01} max={0.22} step={0.005} value={params.pinholeRadius} onChange={updateNumber} digits={3} />
-            <NumericControl label="光源強度" paramKey="lightIntensity" min={0} max={2.5} step={0.05} value={params.lightIntensity} onChange={updateNumber} />
-            <NumericControl label="サンプル数" paramKey="sampleCount" min={1} max={3} step={1} value={params.sampleCount} onChange={updateNumber} digits={0} />
-            <NumericControl label="光線数" paramKey="rayCount" min={5} max={25} step={1} value={params.rayCount} onChange={updateNumber} digits={0} />
+            <NumericControl label="ピンホール半径" paramKey="pinholeRadius" min={0.01} max={0.22} step={0.005} value={params.pinholeRadius} onChange={updateNumber} onCommit={commitLiveSimulation} digits={3} />
+            <NumericControl label="光源強度" paramKey="lightIntensity" min={0} max={2.5} step={0.05} value={params.lightIntensity} onChange={updateNumber} onCommit={commitLiveSimulation} />
+            <NumericControl label="サンプル数" paramKey="sampleCount" min={1} max={3} step={1} value={params.sampleCount} onChange={updateNumber} onCommit={commitLiveSimulation} digits={0} />
+            <NumericControl label="光線数" paramKey="rayCount" min={5} max={25} step={1} value={params.rayCount} onChange={updateNumber} onCommit={commitLiveSimulation} digits={0} />
             <div className="parameter-inline">
               <span>光源ON/OFF</span>
               <button
