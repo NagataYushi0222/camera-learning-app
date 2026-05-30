@@ -309,16 +309,18 @@ button:disabled {
 
 .sensor-screen {
   align-self: start;
-  aspect-ratio: 1.55;
+  --sensor-side-margin: 1rem;
+  aspect-ratio: 14 / 9;
   background: #07090c;
   border: 1px solid #22262b;
   cursor: crosshair;
-  margin: 0 1rem;
+  flex: 0 0 auto;
+  height: auto;
+  margin: 0 auto;
+  max-width: calc(100% - (var(--sensor-side-margin) * 2));
   overflow: hidden;
   position: relative;
-  width: calc(100% - 2rem);
-  height: clamp(164px, 27vh, 242px);
-  flex: 0 0 auto;
+  width: min(calc(100% - (var(--sensor-side-margin) * 2)), 52vh);
 }
 
 .sensor-canvas {
@@ -1261,7 +1263,7 @@ button:disabled {
   }
 
   .sensor-screen {
-    margin: 0 0.75rem;
+    --sensor-side-margin: 0.75rem;
   }
 
   .pixel-info {

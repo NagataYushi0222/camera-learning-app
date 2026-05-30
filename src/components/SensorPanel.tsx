@@ -201,6 +201,7 @@ export function SensorPanel() {
 
         <div
           className="sensor-screen"
+          style={{ aspectRatio: `${sensorResult.width} / ${sensorResult.height}` }}
           onClick={(event) => selectPixel(pixelFromPointer(event, sensorResult.width, sensorResult.height))}
           role="button"
           tabIndex={0}
