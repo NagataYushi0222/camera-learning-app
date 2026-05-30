@@ -227,26 +227,43 @@ export function SensorPanel({ onShowScene }: SensorPanelProps) {
             <Crosshair size={16} aria-hidden="true" />
             <strong>選択ピクセル</strong>
           </div>
-          {isPreviewing ? <p className="preview-analysis-note">操作中は軽量プレビューを表示しています。光線解析は停止後の高品質結果で更新されます。</p> : null}
-          <p>{pixelInfoText(mode, selectedPixel, selectedContributorRays, selectedSourceBundleRays)}</p>
-          <dl>
-            <div>
-              <dt>座標</dt>
-              <dd>{selectedPixel ? `列${selectedPixel.col + 1}・行${selectedPixel.row + 1}` : "未選択"}</dd>
-            </div>
-            <div>
-              <dt>届いた光</dt>
-              <dd>{selectedPixel ? `${selectedContributorRays.length} 本` : "未選択"}</dd>
-            </div>
-            <div>
-              <dt>物体点光束</dt>
-              <dd>{selectedPixel ? `${selectedSourceBundleRays.length} 本` : "未選択"}</dd>
-            </div>
-            <div>
-              <dt>状態</dt>
-              <dd>{modeDescriptions[mode]}</dd>
-            </div>
-          </dl>
+          {isPreviewing ? <p className="preview-analysis-note">操作中はプレビュー中。光線解析は停止後に更新されます。</p> : null}
+          <p className="pixel-info-summary">{pixelInfoText(mode, selectedPixel, selectedContributorRays, selectedSourceBundleRays)}</p>
+          <div className="pixel-quick-metrics" aria-label="選択ピクセルの要約">
+            <span>
+              <strong>座標</strong>
+              <em>{selectedPixel ? `${selectedPixel.col + 1}, ${selectedPixel.row + 1}` : "--"}</em>
+            </span>
+            <span>
+              <strong>届いた光</strong>
+              <em>{selectedPixel ? `${selectedContributorRays.length}本` : "--"}</em>
+            </span>
+            <span>
+              <strong>光束</strong>
+              <em>{selectedPixel ? `${selectedSourceBundleRays.length}本` : "--"}</em>
+            </span>
+          </div>
+          <details className="pixel-detail-collapse">
+            <summary>詳細を見る</summary>
+            <dl>
+              <div>
+                <dt>座標</dt>
+                <dd>{selectedPixel ? `列${selectedPixel.col + 1}・行${selectedPixel.row + 1}` : "未選択"}</dd>
+              </div>
+              <div>
+                <dt>届いた光</dt>
+                <dd>{selectedPixel ? `${selectedContributorRays.length} 本` : "未選択"}</dd>
+              </div>
+              <div>
+                <dt>物体点光束</dt>
+                <dd>{selectedPixel ? `${selectedSourceBundleRays.length} 本` : "未選択"}</dd>
+              </div>
+              <div>
+                <dt>状態</dt>
+                <dd>{modeDescriptions[mode]}</dd>
+              </div>
+            </dl>
+          </details>
           <div className="sensor-actions">
             <button
               className="secondary-action"

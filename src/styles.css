@@ -354,11 +354,11 @@ button:disabled {
 
 .sensor-controls-scroll {
   display: grid;
-  gap: 0.85rem;
+  gap: 0.65rem;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
-  padding: 0.85rem 0.85rem 1rem;
+  padding: 0.7rem 0.78rem 0.88rem;
 }
 
 .inspector-card {
@@ -488,10 +488,17 @@ button:disabled {
 }
 
 .pixel-info {
+  align-content: start;
   display: grid;
   flex: 0 0 auto;
-  gap: 0.7rem;
+  gap: 0.45rem;
+  max-height: 182px;
   min-height: 0;
+  overflow-y: auto;
+}
+
+.pixel-info.inspector-card {
+  padding: 0.62rem 0.68rem;
 }
 
 .info-row {
@@ -502,9 +509,16 @@ button:disabled {
 
 .pixel-info p {
   color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.65;
+  font-size: 0.8rem;
+  line-height: 1.45;
   margin: 0;
+}
+
+.pixel-info-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .pixel-info .preview-analysis-note {
@@ -512,23 +526,70 @@ button:disabled {
   border: 1px solid rgba(213, 138, 25, 0.24);
   border-radius: 8px;
   color: #82570d;
+  font-size: 0.76rem;
   font-weight: 800;
-  padding: 0.45rem 0.58rem;
+  padding: 0.34rem 0.48rem;
+}
+
+.pixel-quick-metrics {
+  display: grid;
+  gap: 0.34rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pixel-quick-metrics span {
+  background: #f1f5f7;
+  border: 1px solid #e1e8ec;
+  border-radius: 7px;
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+  padding: 0.35rem 0.42rem;
+}
+
+.pixel-quick-metrics strong {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.pixel-quick-metrics em {
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pixel-detail-collapse {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.pixel-detail-collapse summary {
+  color: var(--teal-dark);
+  cursor: pointer;
+  font-weight: 900;
+  list-style-position: inside;
+  width: fit-content;
 }
 
 .pixel-info dl {
   display: grid;
-  gap: 0.55rem;
-  margin: 0;
+  gap: 0.36rem;
+  margin: 0.38rem 0 0;
 }
 
 .pixel-info dl div {
   align-items: baseline;
   border-bottom: 1px solid #edf0f2;
   display: grid;
-  gap: 0.7rem;
+  gap: 0.5rem;
   grid-template-columns: 5.6rem minmax(0, 1fr);
-  padding-bottom: 0.45rem;
+  padding-bottom: 0.3rem;
 }
 
 .pixel-info dt {
@@ -1630,6 +1691,12 @@ button:disabled {
   }
 
   .pixel-info {
+    max-height: none;
+    overflow: visible;
+    padding: 0.7rem;
+  }
+
+  .pixel-info.inspector-card {
     padding: 0.7rem;
   }
 
